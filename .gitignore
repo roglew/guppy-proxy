@@ -1,0 +1,14 @@
+*.pyc
+data.db
+.coverage
+.cache
+tests/.cache
+.DS_Store
+TAGS
+config.json
+build/*
+*.egg-info/*
+.#*
+*notes*
+*.org
+start
