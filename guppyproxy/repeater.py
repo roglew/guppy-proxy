@@ -12,8 +12,12 @@ class RepeaterWidget(QWidget):
         QWidget.__init__(self)
         self.client = client
         
-        layout = QVBoxLayout(self)
+        self.setLayout(QVBoxLayout())
+        self.layout().setSpacing(0)
+        self.layout().setContentsMargins(0, 0, 0, 0)
         buttons = QHBoxLayout()
+        buttons.setContentsMargins(0, 0, 0, 0)
+
         submitButton = QPushButton("Submit")
         submitButton.clicked.connect(self.submit)
         buttons.addWidget(submitButton)
@@ -26,8 +30,8 @@ class RepeaterWidget(QWidget):
         
         self.reqview = ReqViewWidget()
         self.reqview.req_edit.setReadOnly(False)
-        layout.addLayout(buttons)
-        layout.addWidget(self.reqview)
+        self.layout().addLayout(buttons)
+        self.layout().addWidget(self.reqview)
         
         self.req = None
         self.dest_host = ""
@@ -46,7 +50,7 @@ class RepeaterWidget(QWidget):
     @pyqtSlot()
     def submit(self):
         try:
-            req = parse_request(self.reqview.req_edit.toPlainText().encode())
+            req = parse_request(self.reqview.req_edit.get_bytes())
         except:
             display_error_box("Could not parse request")
             return

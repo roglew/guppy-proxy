@@ -9,7 +9,7 @@ import string
 #from pygments import highlight
 #from io import StringIO
 #from .colors import Colors, Styles, verb_color, scode_color, path_formatter, color_string
-from PyQt5.QtWidgets import QMessageBox
+from PyQt5.QtWidgets import QMessageBox, QMenu
 
 # def str_hash_code(s):
 #     h = 0
@@ -19,29 +19,19 @@ from PyQt5.QtWidgets import QMessageBox
 #         n -= 1
 #     return h
 # 
-def printable_data(data, colors=False):
-    """
-    Return ``data``, but replaces unprintable characters with periods.
 
-    :param data: The data to make printable
-    :type data: String
-    :rtype: String
-    """
+qtprintable = [c for c in string.printable if c != '\r']
+
+def printable_data(data, include_newline=True):
     chars = []
-    colored = False
+    printable = string.printable
+    if not include_newline:
+        printable = [c for c in printable if c != '\n']
     for c in data:
-        if chr(c) in string.printable:
-            if colored and colors:
-                chars.append(Colors.ENDC)
-            colored = False
+        if chr(c) in printable:
             chars.append(chr(c))
         else:
-            if (not colored) and colors:
-                chars.append(Styles.UNPRINTABLE_DATA)
-            colored = True
             chars.append('.')
-    if colors:
-        chars.append(Colors.ENDC)
     return ''.join(chars)
 
 def max_len_str(s, l):
@@ -67,20 +57,45 @@ def display_info_box(msg, title="Message"):
     msgbox.setStandardButtons(QMessageBox.Ok)
     return msgbox.exec_()
 
+def display_req_context(parent, req, event, repeater_widget=None, req_view_widget=None):
+    menu = QMenu(parent)
+    repeaterAction = None
+    displayUnmangledReq = None
+    displayUnmangledRsp = None
+    
+    if repeater_widget:
+        repeaterAction = menu.addAction("Send to repeater")
+
+    if req.unmangled and req_view_widget:
+        displayUnmangledReq = menu.addAction("View unmangled request")
+    if req.response and req.response.unmangled and req_view_widget:
+        displayUnmangledRsp = menu.addAction("View unmangled response")
+
+    action = menu.exec_(parent.mapToGlobal(event.pos()))
+    if repeaterAction and action == repeaterAction:
+        repeater_widget.set_request(req)
+    if displayUnmangledReq and action == displayUnmangledReq:
+        req_view_widget.set_request(req.unmangled)
+    if displayUnmangledRsp and action == displayUnmangledRsp:
+        new_req = req.copy()
+        new_req.response = req.response.unmangled
+        req_view_widget.set_request(new_req)
+
+
 # 
 # def remove_color(s):
 #     ansi_escape = re.compile(r'\x1b[^m]*m')
 #     return ansi_escape.sub('', s)
 # 
-# def hexdump(src, length=16):
-#     FILTER = ''.join([(len(repr(chr(x))) == 3) and chr(x) or '.' for x in range(256)])
-#     lines = []
-#     for c in range(0, len(src), length):
-#         chars = src[c:c+length]
-#         hex = ' '.join(["%02x" % x for x in chars])
-#         printable = ''.join(["%s" % ((x <= 127 and FILTER[x]) or Styles.UNPRINTABLE_DATA+'.'+Colors.ENDC) for x in chars])
-#         lines.append("%04x  %-*s  %s\n" % (c, length*3, hex, printable))
-#     return ''.join(lines)
+def hexdump(src, length=16):
+    FILTER = ''.join([(len(repr(chr(x))) == 3) and chr(x) or '.' for x in range(256)])
+    lines = []
+    for c in range(0, len(src), length):
+        chars = src[c:c+length]
+        hex = ' '.join(["%02x" % x for x in chars])
+        printable = ''.join(["%s" % ((x <= 127 and FILTER[x]) or '.') for x in chars])
+        lines.append("%04x  %-*s  %s\n" % (c, length*3, hex, printable))
+    return ''.join(lines)
 # 
 # def maybe_hexdump(s):
 #     if any(chr(c) not in string.printable for c in s):

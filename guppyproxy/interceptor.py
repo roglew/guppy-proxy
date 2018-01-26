@@ -96,8 +96,13 @@ class InterceptorWidget(QWidget):
         self.int_ws = False
         
         # layouts
-        layout = QVBoxLayout(self)
+        self.setLayout(QVBoxLayout())
+        self.layout().setSpacing(0)
+        self.layout().setContentsMargins(0, 0, 0, 0)
+
         buttons = QHBoxLayout()
+        buttons.setContentsMargins(0, 0, 0, 0)
+        buttons.setSpacing(10)
 
         # widgets
         intReqButton = QPushButton("Int. Requests")
@@ -127,8 +132,8 @@ class InterceptorWidget(QWidget):
         buttons.addWidget(intRspButton)
         buttons.addWidget(intWsButton)
         # checkbox for req/rsp/ws
-        layout.addLayout(buttons)
-        layout.addWidget(self.editor)
+        self.layout().addLayout(buttons)
+        self.layout().addWidget(self.editor)
         
     @pyqtSlot(bool)
     def int_req_toggled(self, state):
@@ -162,7 +167,6 @@ class InterceptorWidget(QWidget):
     
     def edit_next_message(self):
         self.editor.setPlainText("")
-        self.editing = False
         if self.editing:
             return
         if not self.queued_messages:
@@ -191,18 +195,29 @@ class InterceptorWidget(QWidget):
             self.editing_message.event.set(rsp)
         elif self.editing_message.message_type == "wsmessage":
             pass
+        self.editing = False
         self.edit_next_message()
         
     @pyqtSlot()
     def cancel_edit(self):
         if self.editing_message:
             self.editing_message.event.cancel()
+        self.editing = False
         self.edit_next_message()
         
+    def clear_edit_queue(self):
+        while self.queued_messages or self.editing_message:
+            if self.editing_message:
+                self.editing_message.event.cancel()
+                self.editing_message = False
+            if self.queued_messages:
+                self.editing_message = self.queued_messages.pop()
+            
+        
     def restart_intercept(self):
-        if self.int_conn:
-            self.int_conn.close()
-            self.int_conn = None
+        self.close()
+        self.editor.setPlainText("")
+        self.editing=False
 
         if not (self.int_req or self.int_rsp or self.int_ws):
             return
@@ -213,7 +228,10 @@ class InterceptorWidget(QWidget):
         mangle_macro.intercept_ws = self.int_ws
         self.int_conn = self.client.new_conn()
         self.int_conn.intercept(mangle_macro)
+        
+    def close(self):
+        if self.int_conn:
+            self.int_conn.close()
+            self.int_conn = None
+        self.clear_edit_queue()
 
-    def stop_intercept(self):
-        self.int_conn.close()
-        self.int_conn = None

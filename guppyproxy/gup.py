@@ -108,7 +108,10 @@ def main():
                                      config.is_socks_proxy)
             app = QApplication(sys.argv)
             window = GuppyWindow(client)
-            app.exec_()
+            try:
+                app.exec_()
+            finally:
+                window.close()
         except MessageError as e:
             print(str(e))
 
