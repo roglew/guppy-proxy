@@ -22,7 +22,7 @@ setup(name='guppyproxy',
       install_requires=[
           #'cmd2>=0.6.8',
           #'Jinja2>=2.8',
-          #'pygments>=2.0.2',
+          'Pygments>=2.0.2',
           'PyQt5>=5.9',
           ],
       classifiers=[
