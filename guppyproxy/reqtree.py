@@ -1,7 +1,7 @@
 from .proxy import HTTPRequest
 from PyQt5.QtWidgets import QWidget, QTreeView, QVBoxLayout
 from PyQt5.QtGui import QStandardItem, QStandardItemModel
-from PyQt5.QtCore import pyqtSlot, pyqtSignal, QObject
+from PyQt5.QtCore import pyqtSlot, pyqtSignal, QObject, Qt
 
 def _include_req(req):
     if not req.response:
@@ -20,6 +20,7 @@ class PathNodeItem(QStandardItem):
     def add_child(self, text):
         if text not in self.children:
             newitem = PathNodeItem(text, text)
+            newitem.setFlags(newitem.flags()^Qt.ItemIsEditable)
             self.children[text] = newitem
             self.appendRow(newitem)
             
@@ -57,6 +58,7 @@ class ReqTreeView(QWidget):
         path_parts = [req.dest_host] + path_parts
         if path_parts[0] not in self.nodes:
             item = PathNodeItem(path_parts[0], path_parts[0])
+            item.setFlags(item.flags()^Qt.ItemIsEditable)
             self.nodes[path_parts[0]] = item
             self.root.appendRow(item)
         else:

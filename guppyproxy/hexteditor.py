@@ -5,6 +5,10 @@ from .util import printable_data, hexdump, qtprintable
 from PyQt5.QtWidgets import QWidget, QTextEdit, QTableWidget, QHeaderView, QVBoxLayout, QTableWidgetItem, QTabWidget
 from PyQt5.QtGui import QFont, QTextCursor, QTextDocumentFragment, QTextCharFormat, QImage, QTextDocument, QTextImageFormat, QColor
 from PyQt5.QtCore import QUrl, QVariant, Qt, pyqtSlot, pyqtSignal
+from pygments import highlight
+from pygments.formatters import HtmlFormatter
+from pygments.lexers import TextLexer
+from pygments.styles import get_style_by_name
 
 class HextEditor(QWidget):
     byte_image = QImage()
@@ -18,18 +22,33 @@ class HextEditor(QWidget):
         self.setLayout(layout)
         self.layout().setSpacing(0)
         self.layout().setContentsMargins(0, 0, 0, 0)
+        self.lexer = TextLexer()
 
         self.textedit = QTextEdit()
-        # self.textedit.document().addResource(QTextDocument.ImageResource,
-        #                                      QUrl(HextEditor.byte_url),
-        #                                      QVariant(HextEditor.byte_image))
-        
-        # self.byteFormat = QTextImageFormat()
-        # self.byteFormat.setWidth(HextEditor.byte_image.width())
-        # self.byteFormat.setHeight(HextEditor.byte_image.height())
-        # self.byteFormat.setName(HextEditor.byte_url)
+        doc = self.textedit.document()
+        font = doc.defaultFont()
+        font.setFamily("Courier New")
+        font.setPointSize(10)
+        doc.setDefaultFont(font)
+        self.textedit.focusInEvent = self.focus_in_event
+        self.textedit.focusOutEvent = self.focus_left_event
+        self.data = b''
 
+        self.pretty_mode = False
         self.layout().addWidget(self.textedit)
+        
+    def focus_in_event(self, e):
+        QTextEdit.focusInEvent(self.textedit, e)
+        if not self.textedit.isReadOnly():
+            self.set_bytes(self.data)
+            self.pretty_mode = False
+
+    def focus_left_event(self, e):
+        QTextEdit.focusOutEvent(self.textedit, e)
+        if not self.textedit.isReadOnly():
+            self.data = self.get_bytes()
+            self.set_bytes_highlighted(self.data)
+            self.pretty_mode = True
 
     def setReadOnly(self, ro):
         self.textedit.setReadOnly(ro)
@@ -42,17 +61,31 @@ class HextEditor(QWidget):
         cursor.setCharFormat(QTextCursor().charFormat())
         
     def clear(self):
-        cursor = QTextCursor(self.textedit.document())
-        cursor.setPosition(0)
-        cursor.setPosition(self.textedit.document().characterCount()-1,
-                           QTextCursor.KeepAnchor)
-        cursor.removeSelectedText()
+        # cursor = QTextCursor(self.textedit.document())
+        # cursor.beginEditBlock()
+        # cursor.setPosition(0)
+        # cursor.setPosition(self.textedit.document().characterCount()-1,
+        #                    QTextCursor.KeepAnchor)
+        # cursor.removeSelectedText()
+        # cursor.endEditBlock()
+        self.textedit.setPlainText("")
+        
+    def set_lexer(self, lexer):
+        self.lexer = lexer
         
     def set_bytes(self, bs):
+        self.pretty_mode = False
+        self.data = bs
         chunks = HextEditor._split_by_printables(bs)
         self.clear()
         cursor = QTextCursor(self.textedit.document())
         cursor.beginEditBlock()
+
+        cursor.select(QTextCursor.Document)
+        cursor.setCharFormat(QTextCharFormat())
+        cursor.clearSelection()
+        #self.textedit.setTextCursor(cursor)
+
         for chunk in chunks:
             if chr(chunk[0]) in qtprintable:
                 cursor.insertText(chunk.decode())
@@ -60,8 +93,32 @@ class HextEditor(QWidget):
                 for b in chunk:
                     self._insert_byte(cursor, b)
         cursor.endEditBlock()
+
+    def set_bytes_highlighted(self, bs, lexer=None):
+        self.textedit.setUndoRedoEnabled(False)
+        self.textedit.setUpdatesEnabled(False)
+        self.pretty_mode = True
+        self.clear()
+        self.data = bs
+        if lexer:
+            self.lexer = lexer
+        cursor = QTextCursor(self.textedit.document())
+        printable = printable_data(bs)
+        css_style = ("font-size: 10pt; "
+                     "font-family: monospace; "
+        )
+        highlighted = highlight(printable, self.lexer, HtmlFormatter(noclasses=True,
+        style=get_style_by_name("colorful"), cssstyles=css_style))
+        self.textedit.setHtml(highlighted)
+        self.textedit.setUndoRedoEnabled(True)
+        self.textedit.setUpdatesEnabled(True)
     
     def get_bytes(self):
+        if not self.pretty_mode:
+            self.data = self._get_bytes()
+        return self.data
+        
+    def _get_bytes(self):
         bs = bytearray()
         block = self.textedit.document().firstBlock()
         newline = False
@@ -141,6 +198,7 @@ class HexEditor(QWidget):
         self.datatable.setItem(row, self.str_col, item)
         
     def redraw_table(self, length=None):
+        self.datatable.setUpdatesEnabled(False)
         oldsig = self.datatable.blockSignals(True)
         self.row_size = length or self.row_size
         self.datatable.setColumnCount(self.row_size+1)
@@ -173,6 +231,7 @@ class HexEditor(QWidget):
         self.datatable.blockSignals(oldsig)
         self.datatable.resizeColumnsToContents()
         self.datatable.resizeRowsToContents()
+        self.datatable.setUpdatesEnabled(True)
             
     @classmethod
     def _format_hex(cls, n):
@@ -235,7 +294,10 @@ class ComboEditor(QWidget):
         if i == self.hexteditor_ind:
             self.hext_selected = True
             self.data = self.hexeditor.get_bytes()
-            self.hexteditor.set_bytes(self.data)
+            if self.hexteditor.pretty_mode:
+                self.hexteditor.set_bytes_highlighted(self.data)
+            else:
+                self.hexteditor.set_bytes(self.data)
         if i == self.hexeditor_ind:
             self.hext_selected = False
             self.data = self.hexteditor.get_bytes()
@@ -248,6 +310,11 @@ class ComboEditor(QWidget):
             self.hexteditor.set_bytes(bs)
         else:
             self.hexeditor.set_bytes(bs)
+            
+    @pyqtSlot(bytes)
+    def set_bytes_highlighted(self, bs, lexer=None):
+        self.data = bs
+        self.hexteditor.set_bytes_highlighted(bs, lexer=lexer)
 
     def get_bytes(self):
         if self.hext_selected:

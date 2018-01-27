@@ -24,7 +24,7 @@ def generate_certificates(client, path):
     client.generate_certificates(pkey_file, cert_file)
 
 def main():
-    parser = argparse.ArgumentParser(description="Pappy client")
+    parser = argparse.ArgumentParser(description="Guppy client")
     parser.add_argument("--binary", nargs=1, help="location of the backend binary")
     parser.add_argument("--attach", nargs=1, help="attach to an already running backend")
     parser.add_argument("--dbgattach", nargs=1, help="attach to an already running backend and also perform setup")
@@ -54,10 +54,10 @@ def main():
             gopath = os.environ["GOPATH"]
             binloc = os.path.join(gopath, "bin", "puppy")
         except:
-            # Try to get the binary from ~/.pappy/puppy
+            # Try to get the binary from ~/.guppy/puppy
             binloc = os.path.join(data_dir, "puppy")
             if not os.path.exists(binloc):
-                print("Could not find puppy binary in GOPATH or ~/.pappy. Please ensure that it has been compiled, or pass in the binary location from the command line")
+                print("Could not find puppy binary in GOPATH or ~/.guppy. Please ensure that it has been compiled, or pass in the binary location from the command line")
                 exit(1)
     config = ProxyConfig()
     if not args.lite:

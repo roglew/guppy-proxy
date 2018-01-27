@@ -9,7 +9,7 @@ import string
 #from pygments import highlight
 #from io import StringIO
 #from .colors import Colors, Styles, verb_color, scode_color, path_formatter, color_string
-from PyQt5.QtWidgets import QMessageBox, QMenu
+from PyQt5.QtWidgets import QMessageBox, QMenu, QApplication
 
 # def str_hash_code(s):
 #     h = 0
@@ -62,6 +62,7 @@ def display_req_context(parent, req, event, repeater_widget=None, req_view_widge
     repeaterAction = None
     displayUnmangledReq = None
     displayUnmangledRsp = None
+    viewInBrowser = None
     
     if repeater_widget:
         repeaterAction = menu.addAction("Send to repeater")
@@ -70,6 +71,9 @@ def display_req_context(parent, req, event, repeater_widget=None, req_view_widge
         displayUnmangledReq = menu.addAction("View unmangled request")
     if req.response and req.response.unmangled and req_view_widget:
         displayUnmangledRsp = menu.addAction("View unmangled response")
+
+    if req.db_id != "":
+        viewInBrowser = menu.addAction("View response in browser")
 
     action = menu.exec_(parent.mapToGlobal(event.pos()))
     if repeaterAction and action == repeaterAction:
@@ -80,6 +84,10 @@ def display_req_context(parent, req, event, repeater_widget=None, req_view_widge
         new_req = req.copy()
         new_req.response = req.response.unmangled
         req_view_widget.set_request(new_req)
+    if viewInBrowser and action == viewInBrowser:
+        url = "http://puppy/rsp/%s" % req.db_id
+        QApplication.clipboard().setText(url)
+        display_info_box("URL copied to clipboard.\n\nPaste the URL into the browser being proxied")
 
 
 # 

@@ -1,3 +1,4 @@
+import random
 import threading
 
 from .util import printable_data
@@ -13,6 +14,18 @@ from PyQt5.QtGui import QFont
 from PyQt5.QtCore import pyqtSlot, pyqtSignal, QObject
             
 class GuppyWindow(QWidget):
+    titles = (
+        "Guppy Proxy",
+        "Super Hacker Proxy 3000",
+        "Proxicado",
+        "Proxy Attack Proxy ProxY",
+        "Slurp Bruite",
+        "Pappy",
+        "Sports.exe",
+        "Gappy",
+        "Mickosoft Accel",
+        "Microsoft Word '98",
+    )
     def __init__(self, client):
         QWidget.__init__(self)
         self.client = client
@@ -34,7 +47,7 @@ class GuppyWindow(QWidget):
         mainLayout.addWidget(tabWidget)
 
         #self.setGeometry(300, 300, 300, 200)
-        self.setWindowTitle('Guppy Proxy')
+        self.setWindowTitle(random.choice(GuppyWindow.titles))
         self.show()
         
     def close(self):

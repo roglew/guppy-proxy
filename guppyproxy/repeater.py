@@ -22,11 +22,6 @@ class RepeaterWidget(QWidget):
         submitButton.clicked.connect(self.submit)
         buttons.addWidget(submitButton)
         buttons.addStretch()
-        #buttons.addWidget(QPushButton("<"))
-        #buttons.addWidget(QPushButton(">"))
-        # widgets to set dest host/port/tls
-        # checkbox to save inmem
-        # some status label
         
         self.reqview = ReqViewWidget()
         self.reqview.req_edit.setReadOnly(False)

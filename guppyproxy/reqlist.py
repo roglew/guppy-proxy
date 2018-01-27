@@ -5,7 +5,7 @@ from .util import printable_data, max_len_str, query_to_str, display_error_box, 
 from .proxy import InterceptMacro, HTTPRequest, RequestContext, InvalidQuery, SocketClosed
 from .reqview import ReqViewWidget
 from .reqtree import ReqTreeView
-from PyQt5.QtWidgets import QWidget, QTableWidget, QTableWidgetItem, QGridLayout, QListWidget, QHeaderView, QAbstractItemView, QPlainTextEdit, QMenu, QVBoxLayout, QHBoxLayout, QComboBox, QTabWidget, QPushButton, QLineEdit, QSpacerItem, QStackedLayout, QSizePolicy, QFrame, QToolButton
+from PyQt5.QtWidgets import QWidget, QTableWidget, QTableWidgetItem, QGridLayout, QListWidget, QHeaderView, QAbstractItemView, QPlainTextEdit, QMenu, QVBoxLayout, QHBoxLayout, QComboBox, QTabWidget, QPushButton, QLineEdit, QSpacerItem, QStackedLayout, QSizePolicy, QFrame, QToolButton, QCheckBox
 from PyQt5.QtGui import QFont
 from PyQt5.QtCore import pyqtSlot, pyqtSignal, QObject
 from itertools import groupby
@@ -135,6 +135,7 @@ class DropdownFilterEntry(QWidget):
         # stack containing widgets for string, k/v, date, daterange
         self.str_cmp_entry = StringCmpWidget()
         self.kv_cmp_entry = StringKVWidget()
+        self.inv_entry = QCheckBox("inv")
         # date
         # daterange
 
@@ -152,6 +153,7 @@ class DropdownFilterEntry(QWidget):
         self.field_entry.currentIndexChanged.connect(self._display_value_widget)
         
         layout.addWidget(confirm)
+        layout.addWidget(self.inv_entry)
         layout.addWidget(self.field_entry)
         layout.addLayout(self.entry_layout)
         #self.setMaximumHeight(26)
@@ -177,6 +179,8 @@ class DropdownFilterEntry(QWidget):
         
     def get_value(self):
         val = []
+        if self.inv_entry.isChecked():
+            val.append("inv")
         field = self.field_entry.itemData(self.field_entry.currentIndex())
         val.append(field)
         if self.current_entry == 0:
@@ -310,6 +314,11 @@ class FilterListWidget(QTableWidget):
 class FilterEditor(QWidget):
     # a widget containing a list of filters and the ability to edit the filters in the list
     filtersEdited = pyqtSignal(list)
+    
+    builtin_filters = (
+        ('No Images', ['inv', 'path', 'containsregexp', r'(\.png$|\.jpg$|\.jpeg$|\.gif$|\.ico$|\.bmp$|\.svg$)']),
+        ('No JavaScript/CSS', ['inv', 'path', 'containsregexp', r'(\.js$|\.css$)']),
+    )
     def __init__(self, *args, **kwargs):
         self.client = kwargs.pop("client")
         QWidget.__init__(self, *args, **kwargs)
@@ -325,10 +334,18 @@ class FilterEditor(QWidget):
         scope_reset_button.setToolTip("Set the active filters to the current scope")
         scope_save_button = QPushButton("Save Scope")
         scope_save_button.setToolTip("Set the scope to the current filters. Any messages that don't match the active filters will be ignored by the proxy.")
+        
+        self.builtin_combo = QComboBox()
+        self.builtin_combo.addItem("Apply a built-in filter", None)
+        for desc, filt in FilterEditor.builtin_filters:
+            self.builtin_combo.addItem(desc, filt)
+        self.builtin_combo.currentIndexChanged.connect(self._apply_builtin_filter)
+        
         manage_bar.addWidget(clear_button)
         manage_bar.addWidget(pop_button)
         manage_bar.addWidget(scope_reset_button)
         manage_bar.addWidget(scope_save_button)
+        manage_bar.addWidget(self.builtin_combo)
         manage_bar.addStretch()
         mbar_widget = QWidget()
         mbar_widget.setLayout(manage_bar)
@@ -383,6 +400,13 @@ class FilterEditor(QWidget):
             display_error_box("Could not add filter:\n\n%s" % e)
             return
         self.filtersEdited.emit(self.filter_list.get_query())
+        
+    @pyqtSlot(int)
+    def _apply_builtin_filter(self, ind):
+        phrase = self.builtin_combo.itemData(ind)
+        if phrase:
+            self.apply_phrase([phrase])
+        self.builtin_combo.setCurrentIndex(0)
 
 
 class ReqBrowser(QWidget):

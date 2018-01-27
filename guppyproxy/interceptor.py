@@ -1,6 +1,7 @@
 from .util import printable_data, display_error_box
 from .proxy import InterceptMacro, HTTPRequest, parse_request, parse_response
 from .reqview import ReqViewWidget
+from .hexteditor import ComboEditor
 from PyQt5.QtWidgets import QWidget, QTableWidget, QTableWidgetItem, QGridLayout, QListWidget, QHeaderView, QAbstractItemView, QPlainTextEdit, QTabWidget, QVBoxLayout, QHBoxLayout, QPushButton
 from PyQt5.QtGui import QFont
 from PyQt5.QtCore import pyqtSlot, pyqtSignal, QObject
@@ -110,7 +111,7 @@ class InterceptorWidget(QWidget):
         intWsButton = QPushButton("Int. Websocket")
         forwardButton = QPushButton("Forward")
         cancelButton = QPushButton("Cancel")
-        self.editor = QPlainTextEdit()
+        self.editor = ComboEditor()
         
         intReqButton.setCheckable(True)
         intRspButton.setCheckable(True)
@@ -158,17 +159,17 @@ class InterceptorWidget(QWidget):
         
     def set_edited_message(self, msg):
         if msg.message_type == "request":
-            self.editor.setPlainText(msg.request.full_message().decode())
+            self.editor.set_bytes(msg.request.full_message())
         elif msg.message_type == "response":
-            self.editor.setPlainText(msg.response.full_message().decode())
+            self.editor.set_bytes(msg.response.full_message())
         elif msg.message_type == "wsmessage":
             # this is not gonna work
-            self.editor.setPlainText(msg.wsmessage.message.decode())
+            self.editor.set_bytes(msg.wsmessage.message)
     
     def edit_next_message(self):
-        self.editor.setPlainText("")
         if self.editing:
             return
+        self.editor.set_bytes(b"")
         if not self.queued_messages:
             return
         self.editing_message = self.queued_messages.pop()
@@ -181,14 +182,14 @@ class InterceptorWidget(QWidget):
             return
         if self.editing_message.message_type == "request":
             try:
-                req = parse_request(self.editor.toPlainText().encode())
+                req = parse_request(self.editor.get_bytes())
             except:
                 display_error_box("Could not parse request")
                 return
             self.editing_message.event.set(req)
         elif self.editing_message.message_type == "response":
             try:
-                rsp = parse_response(self.editor.toPlainText().encode())
+                rsp = parse_response(self.editor.get_bytes())
             except:
                 display_error_box("Could not parse response")
                 return
@@ -216,7 +217,7 @@ class InterceptorWidget(QWidget):
         
     def restart_intercept(self):
         self.close()
-        self.editor.setPlainText("")
+        self.editor.set_bytes("")
         self.editing=False
 
         if not (self.int_req or self.int_rsp or self.int_ws):

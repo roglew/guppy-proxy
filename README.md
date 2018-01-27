@@ -9,6 +9,7 @@ Dependencies (make sure these commands are available):
 * `python3`
 * `pip`
 * `virtualenv` (can be installed with pip)
+* `go` version 1.8 or higher
 
 Steps:
 

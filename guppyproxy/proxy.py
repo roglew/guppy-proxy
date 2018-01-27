@@ -1629,10 +1629,10 @@ def parse_rsp_sline(sline):
     return ResponseStatusLine(int(pmajor), int(pminor), int(status_code), reason.decode())
 
 def _parse_message(bs, sline_parser):
-    header_env, body = re.split(b"\r?\n\r?\n", bs, 1)
+    header_env, body = re.split(br"(?:\r\n|\n)(?:\r\n|\n)", bs, 1)
     status_line, header_bytes = re.split(b"\r?\n", header_env, 1)
     h = Headers()
-    for l in re.split(b"\r?\n", header_bytes):
+    for l in re.split(br"\r?\n", header_bytes):
         k, v = l.split(b": ", 1)
         if k.lower != 'content-length':
             h.add(k.decode(), v.decode())
