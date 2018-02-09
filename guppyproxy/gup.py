@@ -4,8 +4,9 @@ import time
 import os
 
 from PyQt5.QtWidgets import QApplication
+from PyQt5.QtCore import Qt
 from .gui import GuppyWindow
-from .proxy import HTTPRequest, ProxyClient, MessageError
+from .proxy import HTTPRequest, ProxyClient, MessageError, ProxyThread
 from .config import ProxyConfig
 from .util import confirm
 
@@ -108,12 +109,14 @@ def main():
                                      config.is_socks_proxy)
             app = QApplication(sys.argv)
             window = GuppyWindow(client)
+            window.setAttribute(Qt.WA_DeleteOnClose)
             try:
                 app.exec_()
             finally:
                 window.close()
         except MessageError as e:
             print(str(e))
+    ProxyThread.waitall()
 
 if __name__ == '__main__':
     main()

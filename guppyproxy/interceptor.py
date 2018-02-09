@@ -4,7 +4,7 @@ from .reqview import ReqViewWidget
 from .hexteditor import ComboEditor
 from PyQt5.QtWidgets import QWidget, QTableWidget, QTableWidgetItem, QGridLayout, QListWidget, QHeaderView, QAbstractItemView, QPlainTextEdit, QTabWidget, QVBoxLayout, QHBoxLayout, QPushButton
 from PyQt5.QtGui import QFont
-from PyQt5.QtCore import pyqtSlot, pyqtSignal, QObject
+from PyQt5.QtCore import pyqtSlot, pyqtSignal, QObject, QThread
 
 import threading
 

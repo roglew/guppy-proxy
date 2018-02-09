@@ -11,9 +11,11 @@ import shlex
 import threading
 
 from collections import namedtuple
+from itertools import count
 from urllib.parse import urlparse, ParseResult, parse_qs, urlencode
 from subprocess import Popen, PIPE, TimeoutExpired
 from http import cookies as hcookies
+from PyQt5.QtCore import QThread
 
 
 class MessageError(Exception):
@@ -88,6 +90,30 @@ class SockBuffer:
         except OSError:
             raise SocketClosed()
 
+class ProxyThread(QThread):
+    threads = {}
+    tiditer = count()
+
+    def __init__(self, target=None, args=tuple()):
+        QThread.__init__(self)
+        self.f = target
+        self.args = args
+        self.tid = next(ProxyThread.tiditer)
+        ProxyThread.threads[self.tid] = self
+        
+    def run(self):
+        self.f(*self.args)
+        del ProxyThread.threads[self.tid]
+        
+    def wait(self):
+        QThread.wait(self)
+        
+    @classmethod
+    def waitall(cls):
+        ts = [(tid, thread) for tid, thread in cls.threads.items()]
+        for tid, thread in ts:
+            thread.wait()
+        
 class Headers:
     def __init__(self, headers=None):
         self.headers = {}
@@ -602,7 +628,8 @@ def messagingFunction(func):
             raise MessageError("cannot be called while other message is interactive")
         if self.closed:
             raise MessageError("connection is closed")
-        return func(self, *args, **kwargs)
+        with self.message_lock:
+            return func(self, *args, **kwargs)
     return f
         
 class ProxyConnection:
@@ -616,10 +643,10 @@ class ProxyConnection:
         self.debug = False
         self.is_interactive = False
         self.closed = True
-        self.sock_lock_read = threading.Lock()
-        self.sock_lock_write = threading.Lock()
+        self.message_lock = threading.Lock()
         self.kind = None
         self.addr = None
+        self.int_thread = None
         
         if kind.lower() == "tcp":
             tcpaddr, port = addr.rsplit(":", 1)
@@ -666,23 +693,21 @@ class ProxyConnection:
         self.closed = True
     
     def read_message(self):
-        with self.sock_lock_read:
-            l = self.sbuf.readline()
-            if self.debug:
-                print("<({}) {}".format(self.connid, l))
-            j = json.loads(l)
-            if "Success" in j and j["Success"] == False:
-                if "Reason" in j:
-                    raise MessageError(j["Reason"])
-                raise MessageError("unknown error")
-            return j
+        l = self.sbuf.readline()
+        if self.debug:
+            print("<({}) {}".format(self.connid, l))
+        j = json.loads(l)
+        if "Success" in j and j["Success"] == False:
+            if "Reason" in j:
+                raise MessageError(j["Reason"])
+            raise MessageError("unknown error")
+        return j
     
     def submit_command(self, cmd):
-        with self.sock_lock_write:
-            ln = json.dumps(cmd).encode()+b"\n"
-            if self.debug:
-                print(">({}) {}".format(self.connid, ln.decode()[:-1]))
-            self.sbuf.send(ln)
+        ln = json.dumps(cmd).encode()+b"\n"
+        if self.debug:
+            print(">({}) {}".format(self.connid, ln.decode()[:-1]))
+        self.sbuf.send(ln)
         
     def reqrsp_cmd(self, cmd):
         self.submit_command(cmd)
@@ -1035,6 +1060,8 @@ class ProxyConnection:
             raise e
         
         def run_macro():
+            iditer = count()
+            threads = {}
             while True:
                 try:
                     msg = self.read_message()
@@ -1109,11 +1136,13 @@ class ProxyConnection:
                         except SocketClosed:
                             return
 
-                mangle_thread = threading.Thread(target=mangle_and_respond,
-                                                 args=(msg,))
+                tid = next(iditer)
+                mangle_thread = ProxyThread(target=mangle_and_respond,
+                                            args=(msg,))
+                threads[tid] = mangle_thread
                 mangle_thread.start()
         
-        self.int_thread = threading.Thread(target=run_macro)
+        self.int_thread = ProxyThread(target=run_macro)
         self.int_thread.start()
     
     @messagingFunction
@@ -1319,13 +1348,15 @@ class ProxyClient:
         return self.check_request(self.context.query, req)
     
     def in_context_requests(self, headers_only=False, max_results=0):
-        results = self.query_storage(self.context.query,
-                                     headers_only=headers_only,
-                                     max_results=max_results)
-        ret = results
-        if max_results > 0 and len(results) > max_results:
-            ret = results[:max_results]
-        return ret
+        return self.query_storage(self.context.query,
+                                  headers_only=headers_only,
+                                  max_results=max_results)
+
+    def in_context_requests_async(self, slot, signal, *args, **kwargs):
+        return self.query_storage(slot,
+                                  self.context.query,
+                                  headers_only=headers_only,
+                                  max_results=max_results)
 
     def in_context_requests_iter(self, headers_only=False, max_results=0):
         results = self.query_storage(self.context.query,
@@ -1386,17 +1417,18 @@ class ProxyClient:
             storage = self.inmem_storage
         self.msg_conn.submit(req, storage=storage)
 
-    def query_storage(self, q, max_results=0, headers_only=False, storage=None):
+    def query_storage(self, q, max_results=0, headers_only=False, storage=None, conn=None):
         results = []
+        conn = conn or self.msg_conn
         if storage is None:
             for s in self.storage_iter():
-                results += self.msg_conn.query_storage(q, max_results=max_results,
-                                                       headers_only=headers_only,
-                                                       storage=s.storage_id)
+                results += conn.query_storage(q, max_results=max_results,
+                                              headers_only=headers_only,
+                                              storage=s.storage_id)
         else:
-            results += self.msg_conn.query_storage(q, max_results=max_results,
-                                                   headers_only=headers_only,
-                                                   storage=storage)
+            results += conn.query_storage(q, max_results=max_results,
+                                          headers_only=headers_only,
+                                          storage=storage)
         def kfunc(req):
             if req.time_start is None:
                 return datetime.datetime.utcfromtimestamp(0)
@@ -1404,6 +1436,17 @@ class ProxyClient:
         results.sort(key=kfunc)
         results = [r for r in reversed(results)]
         return results
+    
+    def query_storage_async(self, slot, *args, **kwargs):
+        def perform_query():
+            try:
+                with self.new_conn() as c:
+                    r = self.query_storage(*args, conn=c, **kwargs)
+                    slot.emit(r)
+            except:
+                pass
+        ProxyThread(target=perform_query).start()
+        
             
     def req_by_id(self, reqid, storage_id=None, headers_only=False):
         if storage_id is None:
@@ -1530,7 +1573,7 @@ def decode_ws(result, storage=0):
         to_server=result["ToServer"],
         timestamp=timestamp,
         db_id=db_id,
-        storage=storage,
+        storage_id=storage,
     )
     
     if "Unmangled" in result:
@@ -1665,3 +1708,24 @@ def parse_response(bs):
         body=body,
         )
     return rsp
+
+def get_full_url(req):
+    netloc = req.dest_host
+    if req.use_tls:
+        scheme = "https"
+        if req.dest_port != 443:
+            netloc = "%s:%d" % (req.dest_host, req.dest_port)
+    else:
+        scheme = "http"
+        if req.dest_port != 80:
+            netloc = "%s:%d" % (req.dest_host, req.dest_port)
+    rpath = req.url
+    u = URL("")
+    u.scheme = scheme
+    u.netloc = netloc
+    u.path = rpath.path
+    u.params = rpath.params
+    u.query = rpath.query
+    u.fragment = rpath.fragment
+    return u.geturl()
+                

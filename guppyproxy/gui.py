@@ -11,7 +11,7 @@ from .decoder import DecoderWidget
 from .hexteditor import ComboEditor, HexEditor
 from PyQt5.QtWidgets import QWidget, QTableWidget, QTableWidgetItem, QGridLayout, QListWidget, QHeaderView, QAbstractItemView, QPlainTextEdit, QTabWidget, QVBoxLayout
 from PyQt5.QtGui import QFont
-from PyQt5.QtCore import pyqtSlot, pyqtSignal, QObject
+from PyQt5.QtCore import pyqtSlot, pyqtSignal, QObject, Qt
             
 class GuppyWindow(QWidget):
     titles = (
@@ -32,6 +32,7 @@ class GuppyWindow(QWidget):
         self.initUi()
 
     def initUi(self):
+        self.setFocusPolicy(Qt.StrongFocus)
         tabWidget = QTabWidget()
         repeaterWidget = RepeaterWidget(self.client)
         self.interceptorWidget = InterceptorWidget(self.client)

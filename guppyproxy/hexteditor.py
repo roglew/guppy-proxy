@@ -3,7 +3,7 @@ import sys
 import string
 from .util import printable_data, hexdump, qtprintable
 from PyQt5.QtWidgets import QWidget, QTextEdit, QTableWidget, QHeaderView, QVBoxLayout, QTableWidgetItem, QTabWidget
-from PyQt5.QtGui import QFont, QTextCursor, QTextDocumentFragment, QTextCharFormat, QImage, QTextDocument, QTextImageFormat, QColor
+from PyQt5.QtGui import QFont, QTextCursor, QTextDocumentFragment, QTextCharFormat, QImage, QTextDocument, QTextImageFormat, QColor, QTextBlockFormat
 from PyQt5.QtCore import QUrl, QVariant, Qt, pyqtSlot, pyqtSignal
 from pygments import highlight
 from pygments.formatters import HtmlFormatter
@@ -61,13 +61,6 @@ class HextEditor(QWidget):
         cursor.setCharFormat(QTextCursor().charFormat())
         
     def clear(self):
-        # cursor = QTextCursor(self.textedit.document())
-        # cursor.beginEditBlock()
-        # cursor.setPosition(0)
-        # cursor.setPosition(self.textedit.document().characterCount()-1,
-        #                    QTextCursor.KeepAnchor)
-        # cursor.removeSelectedText()
-        # cursor.endEditBlock()
         self.textedit.setPlainText("")
         
     def set_lexer(self, lexer):
@@ -102,14 +95,17 @@ class HextEditor(QWidget):
         self.data = bs
         if lexer:
             self.lexer = lexer
-        cursor = QTextCursor(self.textedit.document())
         printable = printable_data(bs)
-        css_style = ("font-size: 10pt; "
-                     "font-family: monospace; "
-        )
+        wrapper_head = """<div class="highlight" style="
+        font-size: 10pt;
+        font-family: monospace;
+        "><pre style="line-height: 100%">"""
+        wrapper_foot = "</pre></div>"
         highlighted = highlight(printable, self.lexer, HtmlFormatter(noclasses=True,
-        style=get_style_by_name("colorful"), cssstyles=css_style))
+        style=get_style_by_name("colorful"), nowrap=True))
+        highlighted = wrapper_head + highlighted + wrapper_foot
         self.textedit.setHtml(highlighted)
+
         self.textedit.setUndoRedoEnabled(True)
         self.textedit.setUpdatesEnabled(True)
     
@@ -172,6 +168,7 @@ class HexEditor(QWidget):
         self.data = bytearray()
         self.datatable = QTableWidget()
         self.datatable.cellChanged.connect(self._cell_changed)
+        self.datatable.horizontalHeader().setStretchLastSection(True)
         self.row_size = 16
         self.read_only = False
         self.redraw_table()

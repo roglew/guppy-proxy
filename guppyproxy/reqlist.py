@@ -1,11 +1,11 @@
 import threading
 import shlex
 
-from .util import printable_data, max_len_str, query_to_str, display_error_box, display_info_box, display_req_context
-from .proxy import InterceptMacro, HTTPRequest, RequestContext, InvalidQuery, SocketClosed
+from .util import printable_data, max_len_str, query_to_str, display_error_box, display_info_box, display_req_context, str_color, hostport, copy_to_clipboard
+from .proxy import InterceptMacro, HTTPRequest, RequestContext, InvalidQuery, SocketClosed, time_to_nsecs, ProxyThread
 from .reqview import ReqViewWidget
 from .reqtree import ReqTreeView
-from PyQt5.QtWidgets import QWidget, QTableWidget, QTableWidgetItem, QGridLayout, QListWidget, QHeaderView, QAbstractItemView, QPlainTextEdit, QMenu, QVBoxLayout, QHBoxLayout, QComboBox, QTabWidget, QPushButton, QLineEdit, QSpacerItem, QStackedLayout, QSizePolicy, QFrame, QToolButton, QCheckBox
+from PyQt5.QtWidgets import QWidget, QTableWidget, QTableWidgetItem, QGridLayout, QListWidget, QHeaderView, QAbstractItemView, QPlainTextEdit, QMenu, QVBoxLayout, QHBoxLayout, QComboBox, QTabWidget, QPushButton, QLineEdit, QSpacerItem, QStackedLayout, QSizePolicy, QFrame, QToolButton, QCheckBox, QLabel
 from PyQt5.QtGui import QFont
 from PyQt5.QtCore import pyqtSlot, pyqtSignal, QObject
 from itertools import groupby
@@ -377,6 +377,7 @@ class FilterEditor(QWidget):
         
     @pyqtSlot()
     def reset_to_scope(self):
+        from .util import dbgline
         query = self.client.get_scope().filter
         self.filter_list.set_query(query)
         self.filtersEdited.emit(self.filter_list.get_query())
@@ -492,8 +493,8 @@ class ReqListUpdater(QObject):
         self.mtx = threading.Lock()
         self.client = client
         self.reqlist_widgets = []
-        t = threading.Thread(target=self.run_updater)
-        t.start()
+        self.t = ProxyThread(target=self.run_updater)
+        self.t.start()
         
     def add_reqlist_widget(self, widget):
         self.mtx.acquire()
@@ -519,74 +520,92 @@ class ReqListUpdater(QObject):
                     finally:
                         self.mtx.release()
             except SocketClosed:
-                pass
+                return
         finally:
             conn.close()
             
     def stop(self):
         self.conn.close()
         
-class ReqTableWidget(QTableWidget):
+def dt_sort_key(r):
+    if r.time_start:
+        return time_to_nsecs(r.time_start)
+    return 0
+
+class ReqTableWidget(QWidget):
 
     requestSelected = pyqtSignal(list)
+    requestsChanged = pyqtSignal(list)
 
     def __init__(self, *args, **kwargs):
         self.repeater_widget = kwargs.pop("repeater_widget", None)
         self.client = kwargs.pop("client", None)
         QWidget.__init__(self, *args, **kwargs)
+
+        self.setLayout(QStackedLayout())
+        self.table = QTableWidget()
+        self.layout().addWidget(self.table)
+        self.layout().addWidget(QLabel("<b>Loading requests from data file...</b>"))
+
         self.reqs = {}
         self.query = []
         self.select_update_func = None
-        self.itemSelectionChanged.connect(self.on_select_change)
-        self.sort_key = lambda r: r.time_start
-        self.sort_reverse = False
+        self.table.itemSelectionChanged.connect(self.on_select_change)
+        self.sort_key = dt_sort_key
+        self.sort_reverse = True
         self.selected_req = None
         self.req_view_widget = kwargs.pop("req_view_widget", None)
         self.requestSelected.connect(self._updated_selected_request)
         self.init_table()
+        self.requestsChanged.connect(self.set_requests)
         self.set_filter(self.query)
 
     def init_table(self):
         self.table_headers = ['id', 'verb', 'host', 'path', 's-code', 'req len', 'rsp len', 'time', 'mngl']
-        self.setColumnCount(len(self.table_headers))
-        self.setHorizontalHeaderLabels(self.table_headers)
-        self.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        self.verticalHeader().hide()
-        self.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        self.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setColumnCount(len(self.table_headers))
+        self.table.setHorizontalHeaderLabels(self.table_headers)
+        self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.table.verticalHeader().hide()
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         
     def _get_row_ind(self, reqid):
-        row_count = self.rowCount()
+        row_count = self.table.rowCount()
         for i in range(row_count):
-            if self.item(i, 0).text() == reqid:
+            if self.table.item(i, 0).text() == reqid:
                 return i
         return -1
     
     def _fill_req_row(self, row, req):
         MAX_PATH_LEN = 75
         #self.table_headers = ['id', 'verb', 'host', 'path', 's-code', 'req len', 'rsp len', 'time', 'mngl']
-        self.setItem(row, 0, QTableWidgetItem(req.db_id))
-        self.setItem(row, 1, QTableWidgetItem(req.method))
-        self.setItem(row, 2, QTableWidgetItem(req.dest_host))
-        self.setItem(row, 3, QTableWidgetItem(max_len_str(req.url.path, MAX_PATH_LEN)))
-        self.setItem(row, 5, QTableWidgetItem(str(req.content_length)))
+        self.table.setItem(row, 0, QTableWidgetItem(req.db_id))
+        self.table.setItem(row, 1, QTableWidgetItem(req.method))
+        
+        hostval = hostport(req)
+        self.table.setItem(row, 2, QTableWidgetItem(hostval))
+        self.table.item(row, 2).setBackground(str_color(hostval, lighten=150))
+
+        self.table.setItem(row, 3, QTableWidgetItem(max_len_str(req.url.path, MAX_PATH_LEN)))
+        self.table.setItem(row, 5, QTableWidgetItem(str(req.content_length)))
 
         time_str = '--'
         if req.time_start and req.time_end:
             time_delt = req.time_end - req.time_start
             time_str = "%.2f" % time_delt.total_seconds()
-        self.setItem(row, 7, QTableWidgetItem(time_str))
+        self.table.setItem(row, 7, QTableWidgetItem(time_str))
 
         if req.response:
             response_code = str(req.response.status_code) + \
                             ' ' + req.response.reason
-            self.setItem(row, 4, QTableWidgetItem(response_code))
-            self.setItem(row, 6, QTableWidgetItem(str(req.response.content_length)))
+            self.table.setItem(row, 4, QTableWidgetItem(response_code))
+            self.table.setItem(row, 6, QTableWidgetItem(str(req.response.content_length)))
         else:
-            self.setItem(row, 4, QTableWidgetItem("--"))
-            self.setItem(row, 6, QTableWidgetItem("--"))
+            self.table.setItem(row, 4, QTableWidgetItem("--"))
+            self.table.setItem(row, 6, QTableWidgetItem("--"))
 
         mangle_str = "N/A"
         if req.unmangled and req.response and req.response.unmangled:
@@ -595,21 +614,21 @@ class ReqTableWidget(QTableWidget):
             mangle_str = "q"
         elif req.response and req.response.unmangled:
             mangle_str = "s"
-        self.setItem(row, 8, QTableWidgetItem(mangle_str))
+        self.table.setItem(row, 8, QTableWidgetItem(mangle_str))
         
     # TODO: add delete_response and delete_wsmessage handlers
         
     @pyqtSlot()
     def redraw_rows(self):
-        self.setRowCount(0)
-        reqs = sorted([r for _, r in self.reqs.items()], key=self.sort_key,
-                      reverse=self.sort_reverse)
-        for req in reqs:
-            self.add_request_row(req)
+            reqs = sorted([r for _, r in self.reqs.items()], key=self.sort_key,
+                        reverse=self.sort_reverse)
+            self.table.setRowCount(len(reqs))
+            for i in range(len(reqs)):
+                self._fill_req_row(i, reqs[i])
 
     @pyqtSlot()
     def clear(self):
-        self.setRowCount(0)
+        self.table.setRowCount(0)
         self.reqs = {}
             
     def get_requests(self):
@@ -617,30 +636,36 @@ class ReqTableWidget(QTableWidget):
         
     @pyqtSlot(list)
     def set_requests(self, reqs, check_filter=True):
-        self.clear()
-        if check_filter:
-            for req in reqs:
-                self.add_request_item(req)
-        else:
-            for req in reqs:
-                self.add_request_row(req)
-        self.redraw_rows()
+        try:
+            self.table.setUpdatesEnabled(False)
+            self.clear()
+            if check_filter:
+                for req in reqs:
+                    self.add_request_item(req, draw=False)
+            else:
+                for req in reqs:
+                    self.add_request_row(req, draw=False)
+            self.redraw_rows()
+            self.set_loading(False)
+        finally:
+            self.table.setUpdatesEnabled(True)
 
     @pyqtSlot(HTTPRequest)
-    def add_request_item(self, req):
+    def add_request_item(self, req, draw=True):
         if req.db_id != "":
             if self.client.check_request(self.query, reqid=req.db_id):
-                self.add_request_row(req)
+                self.add_request_row(req, draw=draw)
             if req.unmangled and req.unmangled.db_id != "" and req.unmangled.db_id in self.reqs:
                 self.delete_request_item(req.unmangled.db_id)
         else:
             if self.client.check_request(self.query, req=req):
-                self.add_request_row(req)
+                self.add_request_row(req, draw=draw)
 
-    def add_request_row(self, req):
+    def add_request_row(self, req, draw=True):
         self.reqs[req.db_id] = req
-        self.insertRow(0)
-        self._fill_req_row(0, req)
+        if draw:
+            self.table.insertRow(0)
+            self._fill_req_row(0, req)
         
     @pyqtSlot(HTTPRequest)
     def update_request_item(self, req):
@@ -667,8 +692,8 @@ class ReqTableWidget(QTableWidget):
     @pyqtSlot(list)
     def set_filter(self, query):
         self.query = query
-        reqs = self.client.query_storage(self.query, headers_only=True)
-        self.set_requests(reqs)
+        self.set_loading(True)
+        self.client.query_storage_async(self.requestsChanged, self.query, headers_only=True)
 
     @pyqtSlot(list)
     def _updated_selected_request(self, reqs):
@@ -678,10 +703,10 @@ class ReqTableWidget(QTableWidget):
             self.selected_req = None
             
     def on_select_change(self):
-        rows = self.selectionModel().selectedRows()
+        rows = self.table.selectionModel().selectedRows()
         reqs = []
         for idx in rows:
-            reqid = self.item(idx.row(), 0).text()
+            reqid = self.table.item(idx.row(), 0).text()
             reqs.append(self.reqs[reqid])
         self.requestSelected.emit(reqs)
         
@@ -692,3 +717,9 @@ class ReqTableWidget(QTableWidget):
     def contextMenuEvent(self, event):
         req = self.get_selected_request()
         display_req_context(self, req, event, repeater_widget=self.repeater_widget, req_view_widget=self.req_view_widget)
+        
+    def set_loading(self, is_loading):
+        if is_loading:
+            self.layout().setCurrentIndex(1)
+        else:
+            self.layout().setCurrentIndex(0)

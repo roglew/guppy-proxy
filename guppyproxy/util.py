@@ -1,26 +1,39 @@
 #import re
 #import sys
 import string
-#import time
-#import datetime
+import time
+import datetime
+import random
 #import base64
 #from pygments.formatters import TerminalFormatter
 #from pygments.lexers import get_lexer_for_mimetype, HttpLexer
 #from pygments import highlight
 #from io import StringIO
 #from .colors import Colors, Styles, verb_color, scode_color, path_formatter, color_string
+from .proxy import get_full_url, URL
 from PyQt5.QtWidgets import QMessageBox, QMenu, QApplication
+from PyQt5.QtGui import QColor
 
-# def str_hash_code(s):
-#     h = 0
-#     n = len(s)-1
-#     for c in s.encode():
-#         h += c*31**n
-#         n -= 1
-#     return h
-# 
+def str_hash_code(s):
+    h = 0
+    n = len(s)-1
+    for c in s.encode():
+        h += c*31**n
+        n -= 1
+    return h
 
 qtprintable = [c for c in string.printable if c != '\r']
+
+def dbgline():
+    from inspect import currentframe, getframeinfo
+    cf = currentframe()
+    print(getframeinfo(cf.f_back).filename, cf.f_back.f_lineno)
+
+def is_printable(s):
+    for c in s:
+        if c not in qtprintable:
+            return False
+    return True
 
 def printable_data(data, include_newline=True):
     chars = []
@@ -57,6 +70,9 @@ def display_info_box(msg, title="Message"):
     msgbox.setStandardButtons(QMessageBox.Ok)
     return msgbox.exec_()
 
+def copy_to_clipboard(s):
+    QApplication.clipboard().setText(s)
+
 def display_req_context(parent, req, event, repeater_widget=None, req_view_widget=None):
     menu = QMenu(parent)
     repeaterAction = None
@@ -74,6 +90,8 @@ def display_req_context(parent, req, event, repeater_widget=None, req_view_widge
 
     if req.db_id != "":
         viewInBrowser = menu.addAction("View response in browser")
+        
+    curlAction = menu.addAction("Copy as cURL command")
 
     action = menu.exec_(parent.mapToGlobal(event.pos()))
     if repeaterAction and action == repeaterAction:
@@ -86,10 +104,61 @@ def display_req_context(parent, req, event, repeater_widget=None, req_view_widge
         req_view_widget.set_request(new_req)
     if viewInBrowser and action == viewInBrowser:
         url = "http://puppy/rsp/%s" % req.db_id
-        QApplication.clipboard().setText(url)
+        copy_to_clipboard(url)
         display_info_box("URL copied to clipboard.\n\nPaste the URL into the browser being proxied")
+    if action == curlAction:
+        curl = curl_command(req)
+        if curl is None:
+            display_error_box("Request could not be converted to cURL command")
+        try:
+            copy_to_clipboard(curl)
+        except:
+            display_error_box("Error copying command to clipboard")
+            
 
+def str_color(s, lighten=0):
+    hashval = str_hash_code(s)
+    gen = random.Random()
+    gen.seed(hashval)
+    r = gen.randint(lighten, 255)
+    g = gen.randint(lighten, 255)
+    b = gen.randint(lighten, 255)
 
+    return QColor(r, g, b)
+
+def hostport(req):
+    # returns host:port if to a port besides 80 or 443
+    host = req.dest_host
+    if req.use_tls and req.dest_port == 443:
+        return host
+    if (not req.use_tls) and req.dest_port == 80:
+        return host
+    return "%s:%d" % (host, req.dest_port)
+
+def _sh_esc(s):
+    sesc = s.replace("\\", "\\\\")
+    sesc = sesc.replace("\"", "\\\"")
+    return sesc
+
+def curl_command(req):
+    # Creates a curl command that submits a given request
+    command = "curl"
+    if req.method != "GET":
+        command += " -X %s" % req.method
+    for k, v in req.headers.pairs():
+        if k.lower == "content-length":
+            continue
+        kesc = _sh_esc(k)
+        vesc = _sh_esc(v)
+        command += ' --header "%s: %s"' % (kesc, vesc)
+        if req.body:
+            if not is_printable(req.body):
+                return None
+            besc = _sh_esc(req.body)
+            command += ' -d "%s"' % besc
+    command += ' "%s"' % _sh_esc(get_full_url(req))
+    return command
+            
 # 
 # def remove_color(s):
 #     ansi_escape = re.compile(r'\x1b[^m]*m')
@@ -308,16 +377,16 @@ def confirm(message, default='n'):
     else:
         return False
 # 
-# # Taken from http://stackoverflow.com/questions/4770297/python-convert-utc-datetime-string-to-local-datetime
-# def utc2local(utc):
-#     epoch = time.mktime(utc.timetuple())
-#     offset = datetime.datetime.fromtimestamp(epoch) - datetime.datetime.utcfromtimestamp(epoch)
-#     return utc + offset
+# Taken from http://stackoverflow.com/questions/4770297/python-convert-utc-datetime-string-to-local-datetime
+def utc2local(utc):
+    epoch = time.mktime(utc.timetuple())
+    offset = datetime.datetime.fromtimestamp(epoch) - datetime.datetime.utcfromtimestamp(epoch)
+    return utc + offset
 # 
-# def datetime_string(dt):
-#     dtobj = utc2local(dt)
-#     time_made_str = dtobj.strftime('%a, %b %d, %Y, %I:%M:%S.%f %p')
-#     return time_made_str
+def datetime_string(dt):
+    dtobj = utc2local(dt)
+    time_made_str = dtobj.strftime('%a, %b %d, %Y, %I:%M:%S.%f %p')
+    return time_made_str
 # 
 # def copy_to_clipboard(text):
 #     from .clip import copy

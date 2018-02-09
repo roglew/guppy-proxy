@@ -18,7 +18,7 @@ require() {
 GO="$(which go)"
 BUILDFLAGS=""
 PUPPYREPO="https://github.com/roglew/puppy.git"
-PUPPYVERSION="tags/0.2.4"
+PUPPYVERSION="tags/0.2.5"
 
 INSTALLDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 TMPGOPATH="$INSTALLDIR/gopath"
