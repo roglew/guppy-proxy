@@ -1,18 +1,14 @@
 import random
-import threading
 
-from .util import printable_data
-from .proxy import InterceptMacro, HTTPRequest
-from .reqlist import ReqListUpdater, ReqBrowser
-from .reqview import ReqViewWidget
+from .reqlist import ReqBrowser
 from .repeater import RepeaterWidget
 from .interceptor import InterceptorWidget
 from .decoder import DecoderWidget
-from .hexteditor import ComboEditor, HexEditor
-from PyQt5.QtWidgets import QWidget, QTableWidget, QTableWidgetItem, QGridLayout, QListWidget, QHeaderView, QAbstractItemView, QPlainTextEdit, QTabWidget, QVBoxLayout
-from PyQt5.QtGui import QFont
-from PyQt5.QtCore import pyqtSlot, pyqtSignal, QObject, Qt
-            
+from .settings import SettingsWidget
+from PyQt5.QtWidgets import QWidget, QTabWidget, QVBoxLayout
+from PyQt5.QtCore import Qt
+
+
 class GuppyWindow(QWidget):
     titles = (
         "Guppy Proxy",
@@ -26,6 +22,7 @@ class GuppyWindow(QWidget):
         "Mickosoft Accel",
         "Microsoft Word '98",
     )
+
     def __init__(self, client):
         QWidget.__init__(self)
         self.client = client
@@ -38,19 +35,20 @@ class GuppyWindow(QWidget):
         self.interceptorWidget = InterceptorWidget(self.client)
         historyWidget = ReqBrowser(self.client, repeater_widget=repeaterWidget)
         decoderWidget = DecoderWidget()
+        settingsWidget = SettingsWidget(self.client)
+        settingsWidget.datafileLoaded.connect(historyWidget.reset_to_scope)
 
         tabWidget.addTab(historyWidget, "History")
         tabWidget.addTab(repeaterWidget, "Repeater")
         tabWidget.addTab(self.interceptorWidget, "Interceptor")
         tabWidget.addTab(decoderWidget, "Decoder")
+        tabWidget.addTab(settingsWidget, "Settings")
 
         mainLayout = QVBoxLayout(self)
         mainLayout.addWidget(tabWidget)
 
-        #self.setGeometry(300, 300, 300, 200)
         self.setWindowTitle(random.choice(GuppyWindow.titles))
         self.show()
-        
+
     def close(self):
         self.interceptorWidget.close()
-

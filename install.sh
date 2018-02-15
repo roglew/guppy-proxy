@@ -18,7 +18,7 @@ require() {
 GO="$(which go)"
 BUILDFLAGS=""
 PUPPYREPO="https://github.com/roglew/puppy.git"
-PUPPYVERSION="tags/0.2.5"
+PUPPYVERSION="tags/0.2.6"
 
 INSTALLDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 TMPGOPATH="$INSTALLDIR/gopath"
@@ -141,7 +141,7 @@ else
     require pip install .
 fi
 
-echo -e "#!/bin/bash\nsource \"$VENVDIR/bin/activate\";\nguppy \$@;\n" > start
+echo -e "#!/bin/bash\nsource \"$VENVDIR/bin/activate\";\nguppy \$@ || killall puppy;\n" > start
 chmod +x start;
 
 echo ""

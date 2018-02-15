@@ -1,25 +1,23 @@
-import threading
 import re
 
-from .util import printable_data, datetime_string
-from .proxy import InterceptMacro, HTTPRequest, _parse_message, get_full_url
+from .util import datetime_string
+from .proxy import HTTPRequest, get_full_url, parse_request
 from .hexteditor import ComboEditor
-from PyQt5.QtWidgets import QWidget, QTableWidget, QTableWidgetItem, QGridLayout, QListWidget, QHeaderView, QAbstractItemView, QPlainTextEdit, QLineEdit, QComboBox, QTabWidget, QVBoxLayout
-from PyQt5.QtGui import QFont
-from PyQt5.QtCore import pyqtSlot, pyqtSignal, QObject, Qt
+from PyQt5.QtWidgets import QWidget, QTableWidget, QTableWidgetItem, QGridLayout, QHeaderView, QAbstractItemView, QLineEdit, QTabWidget, QVBoxLayout, QToolButton, QHBoxLayout
+from PyQt5.QtCore import pyqtSlot, pyqtSignal, Qt
 from pygments.lexer import Lexer
-from pygments.lexers import get_lexer_for_mimetype, guess_lexer, TextLexer
+from pygments.lexers import get_lexer_for_mimetype, TextLexer
 from pygments.lexers.textfmts import HttpLexer
 from pygments.util import ClassNotFound
 from pygments.token import Token
 
+
 class HybridHttpLexer(Lexer):
     tl = TextLexer()
     hl = HttpLexer()
-    
+
     def get_tokens_unprocessed(self, text):
         try:
-            t = text.encode()
             split = re.split(r"(?:\r\n|\n)(?:\r\n|\n)", text, 1)
             if len(split) == 2:
                 h = split[0]
@@ -31,7 +29,7 @@ class HybridHttpLexer(Lexer):
             for v in self.tl.get_tokens_unprocessed(text):
                 yield v
             raise e
-            
+
         for token in self.hl.get_tokens_unprocessed(h):
             yield token
 
@@ -50,8 +48,8 @@ class HybridHttpLexer(Lexer):
                 yield (len(h), Token.Text, text[len(h):])
             else:
                 for index, tokentype, value in second_parser.get_tokens_unprocessed(text[len(h):]):
-                    yield (index+len(h), tokentype, value)
-        
+                    yield (index + len(h), tokentype, value)
+
 
 class InfoWidget(QWidget):
     def __init__(self, *args, **kwargs):
@@ -70,7 +68,7 @@ class InfoWidget(QWidget):
         self.infotable.horizontalHeader().setStretchLastSection(True)
 
         self.layout().addWidget(self.infotable)
-        
+
     def _add_info(self, k, v):
         row = self.infotable.rowCount()
         self.infotable.insertRow(row)
@@ -78,7 +76,7 @@ class InfoWidget(QWidget):
         item1.setFlags(item1.flags() ^ Qt.ItemIsEditable)
         self.infotable.setItem(row, 0, item1)
         self.infotable.setItem(row, 1, QTableWidgetItem(v))
-        
+
     def set_request(self, req):
         self.infotable.setUpdatesEnabled(False)
         try:
@@ -125,9 +123,8 @@ class InfoWidget(QWidget):
 
             verb = self.request.method
             host = self.request.dest_host
-            
+
             self._add_info('Made on', time_made_str)
-            #print_infos.append(('ID', client.get_reqid(self.request)))
             self._add_info('URL', get_full_url(self.request))
             self._add_info('Host', host)
             self._add_info('Path', self.request.url.path)
@@ -141,13 +138,113 @@ class InfoWidget(QWidget):
             self._add_info('Port', str(self.request.dest_port))
             self._add_info('SSL', is_ssl)
             self._add_info('Mangled', mangle_str)
-            #self._add_info('Tags', ', '.join(self.request.tags))
+            self._add_info('Tags', ', '.join(self.request.tags))
         finally:
             self.infotable.setUpdatesEnabled(True)
 
-                    
-class ReqViewWidget(QWidget):
+
+class TagList(QTableWidget):
+    tagsUpdated = pyqtSignal(set)
+
+    # list part of the tag tab
     def __init__(self, *args, **kwargs):
+        QTableWidget.__init__(self, *args, **kwargs)
+        self.tags = set()
+
+        # Set up table
+        self.setColumnCount(1)
+        self.horizontalHeader().hide()
+        self.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.verticalHeader().hide()
+        self.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.setEditTriggers(QAbstractItemView.NoEditTriggers)
+
+    def add_tag(self, tag):
+        self.tags.add(tag)
+        self.redraw_table()
+        self.tagsUpdated.emit(set(self.tags))
+
+    def set_tags(self, tags):
+        self.tags = set(tags)
+        self.redraw_table()
+        self.tagsUpdated.emit(set(self.tags))
+
+    def clear_tags(self):
+        self.tags = set()
+        self.redraw_table()
+        self.tagsUpdated.emit(set(self.tags))
+
+    def _append_str_row(self, fstr):
+        row = self.rowCount()
+        self.insertRow(row)
+        self.setItem(row, 0, QTableWidgetItem(fstr))
+
+    def redraw_table(self):
+        self.setRowCount(0)
+        for tag in sorted(self.tags):
+            self._append_str_row(tag)
+
+    @pyqtSlot()
+    def delete_selected(self):
+        rows = self.selectionModel().selectedRows()
+        if len(rows) == 0:
+            return
+        for idx in rows:
+            tag = self.item(idx.row(), 0).text()
+            self.tags.remove(tag)
+        self.redraw_table()
+        self.tagsUpdated.emit(set(self.tags))
+
+    def get_tags(self):
+        return set(self.tags)
+
+
+class TagWidget(QWidget):
+    tagsUpdated = pyqtSignal(set)
+
+    def __init__(self, *args, **kwargs):
+        QWidget.__init__(self, *args, **kwargs)
+        self.setLayout(QVBoxLayout())
+        self.taglist = TagList()
+        self.taglist.tagsUpdated.connect(self.tagsUpdated)
+        self.layout().addWidget(self.taglist)
+
+        self.taginput = QLineEdit()
+        self.taginput.returnPressed.connect(self.add_tag)
+        self.addbutton = QToolButton()
+        self.addbutton.setText("+")
+        self.removebutton = QToolButton()
+        self.removebutton.setText("-")
+        editbar = QHBoxLayout()
+        editbar.addWidget(self.addbutton)
+        editbar.addWidget(self.removebutton)
+        editbar.addWidget(self.taginput)
+
+        self.removebutton.clicked.connect(self.taglist.delete_selected)
+        self.addbutton.clicked.connect(self.add_tag)
+
+        self.layout().addLayout(editbar)
+
+    @pyqtSlot()
+    def add_tag(self):
+        if self.readonly:
+            return
+        tag = self.taginput.text()
+        if tag == "":
+            return
+        self.taglist.add_tag(tag)
+        self.taginput.setText("")
+
+    def set_read_only(self, readonly):
+        self.readonly = readonly
+        self.addbutton.setEnabled(not readonly)
+        self.removebutton.setEnabled(not readonly)
+
+
+class ReqViewWidget(QWidget):
+    requestEdited = pyqtSignal(HTTPRequest)
+
+    def __init__(self, info_tab=False, tag_tab=False, *args, **kwargs):
         QWidget.__init__(self, *args, **kwargs)
         self.request = None
         self.setLayout(QVBoxLayout())
@@ -165,23 +262,71 @@ class ReqViewWidget(QWidget):
 
         view_layout.addWidget(self.req_edit, 0, 0)
         view_layout.addWidget(self.rsp_edit, 0, 1)
-        
-        self.info_widg = InfoWidget()
-        
-        tab_widget = QTabWidget()
         view_widg = QWidget()
         view_widg.setLayout(view_layout)
-        tab_widget.addTab(view_widg, "Messages")
-        tab_widget.addTab(self.info_widg, "Info")
-        
-        self.layout().addWidget(tab_widget)
-        
+
+        use_tab = False
+        if info_tab or tag_tab:  # or <other tab> or <other other tab>
+            use_tab = True
+            tab_widget = QTabWidget()
+            tab_widget.addTab(view_widg, "Messages")
+
+        self.info_tab = False
+        self.info_widg = None
+        if info_tab:
+            self.info_tab = True
+            self.info_widg = InfoWidget()
+            tab_widget.addTab(self.info_widg, "Info")
+
+        self.tag_tab = False
+        self.tag_widg = None
+        if tag_tab:
+            self.tag_tab = True
+            self.tag_widg = TagWidget()
+            tab_widget.addTab(self.tag_widg, "Tags")
+
+        if use_tab:
+            self.layout().addWidget(tab_widget)
+        else:
+            self.layout().addWidget(view_widg)
+
+    def set_read_only(self, ro):
+        self.req_edit.setReadOnly(ro)
+
+    def set_tags_read_only(self, ro):
+        if self.tag_tab:
+            self.tag_widg.set_read_only(ro)
+
+    def get_request(self):
+        try:
+            req = parse_request(self.req_edit.get_bytes())
+            req.dest_host = self.dest_host
+            req.dest_port = self.dest_port
+            req.use_tls = self.use_tls
+            if self.tag_widg:
+                req.tags = self.tag_widg.taglist.get_tags()
+            return req
+        except Exception as e:
+            raise e
+            return None
+
     @pyqtSlot(HTTPRequest)
     def set_request(self, req):
         self.req = req
-        self.info_widg.set_request(req)
+        self.dest_host = ""
+        self.dest_port = -1
+        self.use_tls = False
+        if req:
+            self.dest_host = req.dest_host
+            self.dest_port = req.dest_port
+            self.use_tls = req.use_tls
         self.update_editors()
-        
+        if self.info_tab:
+            self.info_widg.set_request(req)
+        if self.tag_tab:
+            if req:
+                self.tag_widg.taglist.set_tags(req.tags)
+
     def update_editors(self):
         self.req_edit.set_bytes(b"")
         self.rsp_edit.set_bytes(b"")

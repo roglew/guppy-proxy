@@ -1,39 +1,37 @@
-#import re
-#import sys
+import os
 import string
 import time
 import datetime
 import random
-#import base64
-#from pygments.formatters import TerminalFormatter
-#from pygments.lexers import get_lexer_for_mimetype, HttpLexer
-#from pygments import highlight
-#from io import StringIO
-#from .colors import Colors, Styles, verb_color, scode_color, path_formatter, color_string
-from .proxy import get_full_url, URL
-from PyQt5.QtWidgets import QMessageBox, QMenu, QApplication
+from .proxy import get_full_url
+from PyQt5.QtWidgets import QMessageBox, QMenu, QApplication, QFileDialog
 from PyQt5.QtGui import QColor
+
 
 def str_hash_code(s):
     h = 0
-    n = len(s)-1
+    n = len(s) - 1
     for c in s.encode():
-        h += c*31**n
+        h += c * 31 ** n
         n -= 1
     return h
 
+
 qtprintable = [c for c in string.printable if c != '\r']
+
 
 def dbgline():
     from inspect import currentframe, getframeinfo
     cf = currentframe()
     print(getframeinfo(cf.f_back).filename, cf.f_back.f_lineno)
 
+
 def is_printable(s):
     for c in s:
         if c not in qtprintable:
             return False
     return True
+
 
 def printable_data(data, include_newline=True):
     chars = []
@@ -47,12 +45,14 @@ def printable_data(data, include_newline=True):
             chars.append('.')
     return ''.join(chars)
 
-def max_len_str(s, l):
-    if l <= 3:
+
+def max_len_str(s, ln):
+    if ln <= 3:
         return "..."
-    if len(s) <= l:
+    if len(s) <= ln:
         return s
-    return s[:(l-3)]+"..."
+    return s[:(ln - 3)] + "..."
+
 
 def display_error_box(msg, title="Error"):
     msgbox = QMessageBox()
@@ -62,6 +62,7 @@ def display_error_box(msg, title="Error"):
     msgbox.setStandardButtons(QMessageBox.Ok)
     return msgbox.exec_()
 
+
 def display_info_box(msg, title="Message"):
     msgbox = QMessageBox()
     msgbox.setIcon(QMessageBox.Information)
@@ -70,8 +71,25 @@ def display_info_box(msg, title="Message"):
     msgbox.setStandardButtons(QMessageBox.Ok)
     return msgbox.exec_()
 
+
 def copy_to_clipboard(s):
     QApplication.clipboard().setText(s)
+
+
+def save_dialog(parent, default_dir=None, default_name=None):
+    default_dir = default_dir or os.getcwd()
+    default_name = default_name or ""
+    dialog = QFileDialog(parent)
+    dialog.setFileMode(QFileDialog.AnyFile)
+    dialog.setViewMode(QFileDialog.Detail)
+    dialog.setAcceptMode(QFileDialog.AcceptSave)
+    dialog.setDirectory(os.getcwd())
+    dialog.selectFile(default_name)
+    if not (dialog.exec_()):
+        return None
+    saveloc = dialog.selectedFiles()[0]
+    return saveloc
+
 
 def display_req_context(parent, req, event, repeater_widget=None, req_view_widget=None):
     menu = QMenu(parent)
@@ -79,7 +97,7 @@ def display_req_context(parent, req, event, repeater_widget=None, req_view_widge
     displayUnmangledReq = None
     displayUnmangledRsp = None
     viewInBrowser = None
-    
+
     if repeater_widget:
         repeaterAction = menu.addAction("Send to repeater")
 
@@ -90,8 +108,11 @@ def display_req_context(parent, req, event, repeater_widget=None, req_view_widge
 
     if req.db_id != "":
         viewInBrowser = menu.addAction("View response in browser")
-        
+
     curlAction = menu.addAction("Copy as cURL command")
+    saveAction = menu.addAction("Save response to file")
+    saveFullActionReq = menu.addAction("Save request to file (full message)")
+    saveFullActionRsp = menu.addAction("Save response to file (full message)")
 
     action = menu.exec_(parent.mapToGlobal(event.pos()))
     if repeaterAction and action == repeaterAction:
@@ -112,9 +133,36 @@ def display_req_context(parent, req, event, repeater_widget=None, req_view_widge
             display_error_box("Request could not be converted to cURL command")
         try:
             copy_to_clipboard(curl)
-        except:
+        except Exception:
             display_error_box("Error copying command to clipboard")
-            
+    if action == saveAction:
+        if not req.response:
+            display_error_box("No response associated with request")
+            return
+        fname = req.url.path.rsplit('/', 1)[-1]
+        saveloc = save_dialog(parent, default_name=fname)
+        if not saveloc:
+            return
+        with open(saveloc, 'wb') as f:
+            f.write(req.response.body)
+    if action == saveFullActionRsp:
+        if not req.response:
+            display_error_box("No response associated with request")
+            return
+        fname = req.url.path.rsplit('/', 1)[-1] + ".response"
+        saveloc = save_dialog(parent, default_name=fname)
+        if not saveloc:
+            return
+        with open(saveloc, 'wb') as f:
+            f.write(req.response.full_message())
+    if action == saveFullActionReq:
+        fname = req.url.path.rsplit('/', 1)[-1] + ".request"
+        saveloc = save_dialog(parent, default_name=fname)
+        if not saveloc:
+            return
+        with open(saveloc, 'wb') as f:
+            f.write(req.full_message())
+
 
 def str_color(s, lighten=0):
     hashval = str_hash_code(s)
@@ -126,6 +174,7 @@ def str_color(s, lighten=0):
 
     return QColor(r, g, b)
 
+
 def hostport(req):
     # returns host:port if to a port besides 80 or 443
     host = req.dest_host
@@ -135,10 +184,12 @@ def hostport(req):
         return host
     return "%s:%d" % (host, req.dest_port)
 
+
 def _sh_esc(s):
     sesc = s.replace("\\", "\\\\")
     sesc = sesc.replace("\"", "\\\"")
     return sesc
+
 
 def curl_command(req):
     # Creates a curl command that submits a given request
@@ -158,199 +209,23 @@ def curl_command(req):
             command += ' -d "%s"' % besc
     command += ' "%s"' % _sh_esc(get_full_url(req))
     return command
-            
-# 
-# def remove_color(s):
-#     ansi_escape = re.compile(r'\x1b[^m]*m')
-#     return ansi_escape.sub('', s)
-# 
+
+
+def list_remove(lst, inds):
+    return [i for j, i in enumerate(lst) if j not in inds]
+
+
 def hexdump(src, length=16):
     FILTER = ''.join([(len(repr(chr(x))) == 3) and chr(x) or '.' for x in range(256)])
     lines = []
     for c in range(0, len(src), length):
-        chars = src[c:c+length]
+        chars = src[c:c + length]
         hex = ' '.join(["%02x" % x for x in chars])
         printable = ''.join(["%s" % ((x <= 127 and FILTER[x]) or '.') for x in chars])
-        lines.append("%04x  %-*s  %s\n" % (c, length*3, hex, printable))
+        lines.append("%04x  %-*s  %s\n" % (c, length * 3, hex, printable))
     return ''.join(lines)
-# 
-# def maybe_hexdump(s):
-#     if any(chr(c) not in string.printable for c in s):
-#         return hexdump(s)
-#     return s
-# 
-# def print_table(coldata, rows):
-#     """
-#     Print a table.
-#     Coldata: List of dicts with info on how to print the columns.
-#     ``name`` is the heading to give column,
-#     ``width (optional)`` maximum width before truncating. 0 for unlimited.
-# 
-#     Rows: List of tuples with the data to print
-#     """
-# 
-#     # Get the width of each column
-#     widths = []
-#     headers = []
-#     for data in coldata:
-#         if 'name' in data:
-#             headers.append(data['name'])
-#         else:
-#             headers.append('')
-#     empty_headers = True
-#     for h in headers:
-#         if h != '':
-#             empty_headers = False
-#     if not empty_headers:
-#         rows = [headers] + rows
-# 
-#     for i in range(len(coldata)):
-#         col = coldata[i]
-#         if 'width' in col and col['width'] > 0:
-#             maxwidth = col['width']
-#         else:
-#             maxwidth = 0
-#         colwidth = 0
-#         for row in rows:
-#             printdata = row[i]
-#             if isinstance(printdata, dict):
-#                 collen = len(str(printdata['data']))
-#             else:
-#                 collen = len(str(printdata))
-#             if collen > colwidth:
-#                 colwidth = collen
-#         if maxwidth > 0 and colwidth > maxwidth:
-#             widths.append(maxwidth)
-#         else:
-#             widths.append(colwidth)
-# 
-#     # Print rows
-#     padding = 2
-#     is_heading = not empty_headers
-#     for row in rows:
-#         if is_heading:
-#             sys.stdout.write(Styles.TABLE_HEADER)
-#         for (col, width) in zip(row, widths):
-#             if isinstance(col, dict):
-#                 printstr = str(col['data'])
-#                 if 'color' in col:
-#                     colors = col['color']
-#                     formatter = None
-#                 elif 'formatter' in col:
-#                     colors = None
-#                     formatter = col['formatter']
-#                 else:
-#                     colors = None
-#                     formatter = None
-#             else:
-#                 printstr = str(col)
-#                 colors = None
-#                 formatter = None
-#             if len(printstr) > width:
-#                 trunc_printstr=printstr[:width]
-#                 trunc_printstr=trunc_printstr[:-3]+'...'
-#             else:
-#                 trunc_printstr=printstr
-#             if colors is not None:
-#                 sys.stdout.write(colors)
-#                 sys.stdout.write(trunc_printstr)
-#                 sys.stdout.write(Colors.ENDC)
-#             elif formatter is not None:
-#                 toprint = formatter(printstr, width)
-#                 sys.stdout.write(toprint)
-#             else:
-#                 sys.stdout.write(trunc_printstr)
-#             sys.stdout.write(' '*(width-len(printstr)))
-#             sys.stdout.write(' '*padding)
-#         if is_heading:
-#             sys.stdout.write(Colors.ENDC)
-#             is_heading = False
-#         sys.stdout.write('\n')
-#         sys.stdout.flush()
-# 
-# def print_requests(requests, client=None):
-#     """
-#     Takes in a list of requests and prints a table with data on each of the
-#     requests. It's the same table that's used by ``ls``.
-#     """
-#     rows = []
-#     for req in requests:
-#         rows.append(get_req_data_row(req, client=client))
-#     print_request_rows(rows)
-#     
-# def print_request_rows(request_rows):
-#     """
-#     Takes in a list of request rows generated from :func:`pappyproxy.console.get_req_data_row`
-#     and prints a table with data on each of the
-#     requests. Used instead of :func:`pappyproxy.console.print_requests` if you
-#     can't count on storing all the requests in memory at once.
-#     """
-#     # Print a table with info on all the requests in the list
-#     cols = [
-#         {'name':'ID'},
-#         {'name':'Verb'},
-#         {'name': 'Host'},
-#         {'name':'Path', 'width':40},
-#         {'name':'S-Code', 'width':16},
-#         {'name':'Req Len'},
-#         {'name':'Rsp Len'},
-#         {'name':'Time'},
-#         {'name':'Mngl'},
-#     ]
-#     print_rows = []
-#     for row in request_rows:
-#         (reqid, verb, host, path, scode, qlen, slen, time, mngl) = row
-# 
-#         verb =  {'data':verb, 'color':verb_color(verb)}
-#         scode = {'data':scode, 'color':scode_color(scode)}
-#         host = {'data':host, 'color':color_string(host, color_only=True)}
-#         path = {'data':path, 'formatter':path_formatter}
-# 
-#         print_rows.append((reqid, verb, host, path, scode, qlen, slen, time, mngl))
-#     print_table(cols, print_rows)
-#     
-# def get_req_data_row(request, client=None):
-#     """
-#     Get the row data for a request to be printed.
-#     """
-#     if client is not None:
-#         rid = client.get_reqid(request)
-#     else:
-#         rid = request.db_id
-#     method = request.method
-#     host = request.dest_host
-#     if not request.use_tls and request.dest_port != 80:
-#         host = "%s:%d" % (request.dest_host, request.dest_port)
-#     if request.use_tls and request.dest_port != 443:
-#         host = "%s:%d" % (request.dest_host, request.dest_port)
-#     path = request.url.geturl()
-#     reqlen = request.content_length
-#     rsplen = 'N/A'
-#     mangle_str = '--'
-# 
-#     if request.unmangled:
-#         mangle_str = 'q'
-# 
-#     if request.response:
-#         response_code = str(request.response.status_code) + \
-#             ' ' + request.response.reason
-#         rsplen = request.response.content_length
-#         if request.response.unmangled:
-#             if mangle_str == '--':
-#                 mangle_str = 's'
-#             else:
-#                 mangle_str += '/s'
-#     else:
-#         response_code = ''
-# 
-#     time_str = '--'
-#     if request.time_start and request.time_end:
-#         time_delt = request.time_end - request.time_start
-#         time_str = "%.2f" % time_delt.total_seconds()
-# 
-#     return [rid, method, host, path, response_code,
-#             reqlen, rsplen, time_str, mangle_str]
-#     
+
+
 def confirm(message, default='n'):
     """
     A helper function to get confirmation from the user. It prints ``message``
@@ -368,7 +243,6 @@ def confirm(message, default='n'):
     else:
         answer = input('(y/N) ')
 
-
     if not answer:
         return default
 
@@ -376,41 +250,21 @@ def confirm(message, default='n'):
         return True
     else:
         return False
-# 
+
+
 # Taken from http://stackoverflow.com/questions/4770297/python-convert-utc-datetime-string-to-local-datetime
 def utc2local(utc):
     epoch = time.mktime(utc.timetuple())
     offset = datetime.datetime.fromtimestamp(epoch) - datetime.datetime.utcfromtimestamp(epoch)
     return utc + offset
-# 
+
+
 def datetime_string(dt):
     dtobj = utc2local(dt)
     time_made_str = dtobj.strftime('%a, %b %d, %Y, %I:%M:%S.%f %p')
     return time_made_str
-# 
-# def copy_to_clipboard(text):
-#     from .clip import copy
-#     copy(text)
-#     
-# def clipboard_contents():
-#     from .clip import paste
-#     return paste()
-# 
-# def encode_basic_auth(username, password):
-#     decoded = '%s:%s' % (username, password)
-#     encoded = base64.b64encode(decoded.encode())
-#     header = 'Basic %s' % encoded.decode()
-#     return header
-# 
-# def parse_basic_auth(header):
-#     """
-#     Parse a raw basic auth header and return (username, password)
-#     """
-#     _, creds = header.split(' ', 1)
-#     decoded = base64.b64decode(creds)
-#     username, password = decoded.split(':', 1)
-#     return (username, password)
-# 
+
+
 def query_to_str(query):
     retstr = ""
     for p in query:
@@ -420,39 +274,3 @@ def query_to_str(query):
 
         retstr += (' OR '.join(fstrs))
     return retstr
-# 
-# def log_error(msg):
-#     print(msg)
-# 
-# def autocomplete_startswith(text, lst, allow_spaces=False):
-#     ret = None
-#     if not text:
-#         ret = lst[:]
-#     else:
-#         ret = [n for n in lst if n.startswith(text)]
-#     if not allow_spaces:
-#         ret = [s for s in ret if ' ' not in s]
-#     return ret
-# 
-# def load_reqlist(client, reqids, headers_only=False):
-#     ids = re.compile(r",\s*").split(reqids)
-#     if '*' in ids:
-#         for req in client.in_context_requests_iter(headers_only=headers_only):
-#             yield req
-#     for i in ids:
-#         try:
-#             yield client.req_by_id(i, headers_only=headers_only)
-#         except Exception as e:
-#             print(e)
-# 
-# # Taken from http://stackoverflow.com/questions/16571150/how-to-capture-stdout-output-from-a-python-function-call
-# # then modified
-# class Capturing():
-#     def __enter__(self):
-#         self._stdout = sys.stdout
-#         sys.stdout = self._stringio = StringIO()
-#         return self
-# 
-#     def __exit__(self, *args):
-#         self.val = self._stringio.getvalue()
-#         sys.stdout = self._stdout

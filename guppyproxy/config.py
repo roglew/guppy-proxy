@@ -10,11 +10,25 @@ default_config = """{
 
 
 class ProxyConfig:
-    
+    PLUGIN_KEY = "guppy_config"
+
     def __init__(self):
         self._listeners = [('127.0.0.1', 8080, None)]
         self._proxy = {'use_proxy': False, 'host': '', 'port': 0, 'is_socks': False}
-        
+
+    def loads(self, js):
+        config_info = json.loads(js)
+        self._set_config(config_info)
+
+    def dumps(self):
+        listeners = []
+        for l in self._listeners:
+            listener = {"host": l[0], "port": l[1]}
+            listeners.append(listener)
+        _config_info = {"listeners": listeners,
+                        "proxy": self._proxy}
+        return json.dumps(_config_info)
+
     def load(self, fname):
         try:
             with open(fname, 'r') as f:
@@ -23,7 +37,9 @@ class ProxyConfig:
             config_info = json.loads(default_config)
             with open(fname, 'w') as f:
                 f.write(default_config)
-            
+        self._set_config(config_info)
+
+    def _set_config(self, config_info):
         # Listeners
         if 'listeners' in config_info:
             self._parse_listeners(config_info['listeners'])
@@ -55,20 +71,23 @@ class ProxyConfig:
                 transparent_dest = None
 
             self._listeners.append((iface, port, transparent_dest))
-            
+
+    def set_listeners(self, listeners):
+        self._listeners = listeners
+
     @property
     def listeners(self):
         return copy.deepcopy(self._listeners)
-    
+
     @listeners.setter
     def listeners(self, val):
         self._parse_listeners(val)
-        
+
     @property
     def proxy(self):
         # don't use this, use the getters to get the parsed values
         return self._proxy
-        
+
     @proxy.setter
     def proxy(self, val):
         self._proxy = val
@@ -126,4 +145,3 @@ class ProxyConfig:
             if self._proxy['is_socks']:
                 return True
         return False
-

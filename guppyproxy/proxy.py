@@ -7,13 +7,12 @@ import json
 import math
 import re
 import socket
-import shlex
 import threading
 
 from collections import namedtuple
 from itertools import count
 from urllib.parse import urlparse, ParseResult, parse_qs, urlencode
-from subprocess import Popen, PIPE, TimeoutExpired
+from subprocess import Popen, PIPE
 from http import cookies as hcookies
 from PyQt5.QtCore import QThread
 
@@ -29,17 +28,19 @@ class ProxyException(Exception):
 class InvalidQuery(Exception):
     pass
 
+
 class SocketClosed(Exception):
     pass
+
 
 class SockBuffer:
     # I can't believe I have to implement this
 
     def __init__(self, sock):
-        self.buf = [] # a list of chunks of strings
+        self.buf = []  # a list of chunks of strings
         self.s = sock
         self.closed = False
-        
+
     def close(self):
         try:
             self.s.shutdown(socket.SHUT_RDWR)
@@ -49,18 +50,18 @@ class SockBuffer:
             pass
         finally:
             self.closed = True
-        
+
     def _check_newline(self):
         for chunk in self.buf:
             if '\n' in chunk:
                 return True
         return False
-            
+
     def readline(self):
         # Receive until we get a newline, raise SocketClosed if socket is closed
         while True:
             try:
-                data = self.s.recv(8192)
+                data = self.s.recv(256)
             except OSError:
                 raise SocketClosed()
             if not data:
@@ -70,25 +71,17 @@ class SockBuffer:
                 break
 
         # Combine chunks
-        retbytes = bytes()
-        n = 0
-        for chunk in self.buf:
-            n += 1
-            if b'\n' in chunk:
-                head, tail = chunk.split(b'\n', 1)
-                retbytes += head
-                self.buf = self.buf[n:]
-                self.buf = [tail] + self.buf
-                break
-            else:
-                retbytes += chunk
-        return retbytes.decode()
-    
+        allbytes = b''.join(self.buf)
+        head, tail = allbytes.split(b'\n', 1)
+        self.buf = [tail]
+        return head.decode()
+
     def send(self, data):
         try:
             self.s.send(data)
         except OSError:
             raise SocketClosed()
+
 
 class ProxyThread(QThread):
     threads = {}
@@ -100,20 +93,21 @@ class ProxyThread(QThread):
         self.args = args
         self.tid = next(ProxyThread.tiditer)
         ProxyThread.threads[self.tid] = self
-        
+
     def run(self):
         self.f(*self.args)
         del ProxyThread.threads[self.tid]
-        
+
     def wait(self):
         QThread.wait(self)
-        
+
     @classmethod
     def waitall(cls):
         ts = [(tid, thread) for tid, thread in cls.threads.items()]
         for tid, thread in ts:
             thread.wait()
-        
+
+
 class Headers:
     def __init__(self, headers=None):
         self.headers = {}
@@ -126,7 +120,7 @@ class Headers:
                 for k, vs in headers.items():
                     for v in vs:
                         self.add(k, v)
-        
+
     def __contains__(self, hd):
         for k, _ in self.headers.items():
             if k.lower() == hd.lower():
@@ -135,29 +129,29 @@ class Headers:
 
     def add(self, k, v):
         try:
-            l = self.headers[k.lower()]
-            l.append((k,v))
+            lst = self.headers[k.lower()]
+            lst.append((k, v))
         except KeyError:
-            self.headers[k.lower()] = [(k,v)]
-            
+            self.headers[k.lower()] = [(k, v)]
+
     def set(self, k, v):
-        self.headers[k.lower()] = [(k,v)]
-        
+        self.headers[k.lower()] = [(k, v)]
+
     def get(self, k):
         return self.headers[k.lower()][0][1]
-    
+
     def delete(self, k):
         try:
             del self.headers[k.lower()]
         except KeyError:
             pass
-    
+
     def pairs(self, key=None):
         for _, kvs in self.headers.items():
             for k, v in kvs:
                 if key is None or k.lower() == key.lower():
                     yield (k, v)
-    
+
     def dict(self):
         retdict = {}
         for _, kvs in self.headers.items():
@@ -167,17 +161,18 @@ class Headers:
                 else:
                     retdict[k] = [v]
         return retdict
-    
+
+
 class RequestContext:
     def __init__(self, client, query=None):
         self._current_query = []
         self.client = client
         if query is not None:
             self._current_query = query
-        
+
     def _validate(self, query):
         self.client.validate_query(query)
-    
+
     def set_query(self, query):
         self._validate(query)
         self._current_query = query
@@ -193,7 +188,7 @@ class RequestContext:
     def apply_filter(self, filt):
         self._validate([[filt]])
         self._current_query.append([filt])
-        
+
     @property
     def query(self):
         return copy.deepcopy(self._current_query)
@@ -217,7 +212,7 @@ class URL:
             self.params = ""
             self.query = ""
             self.fragment = ""
-            
+
     def geturl(self, include_params=True):
         params = self.params
         query = self.query
@@ -235,23 +230,23 @@ class URL:
                         query=query,
                         fragment=fragment)
         return r.geturl()
-    
+
     def parameters(self):
         try:
             return parse_qs(self.query, keep_blank_values=True)
         except Exception:
             return []
-    
+
     def param_iter(self):
         for k, vs in self.parameters().items():
             for v in vs:
                 yield k, v
-        
+
     def set_param(self, key, val):
         params = self.parameters()
         params[key] = [val]
         self.query = urlencode(params)
-        
+
     def add_param(self, key, val):
         params = self.parameters()
         if key in params:
@@ -259,15 +254,15 @@ class URL:
         else:
             params[key] = [val]
         self.query = urlencode(params)
-        
+
     def del_param(self, key):
         params = self.parameters()
         del params[key]
         self.query = urlencode(params)
-        
+
     def set_params(self, params):
         self.query = urlencode(params)
-                
+
 
 class InterceptMacro:
     """
@@ -306,34 +301,34 @@ class HTTPRequest:
         self.proto_minor = proto_minor
 
         self.headers = Headers(headers)
-        
+
         self.headers_only = headers_only
         self._body = bytes()
         if not headers_only:
             self.body = body
-        
+
         # metadata
         self.dest_host = dest_host
         self.dest_port = dest_port
         self.use_tls = use_tls
         self.time_start = time_start
         self.time_end = time_end
-        
+
         self.response = None
         self.unmangled = None
         self.ws_messages = []
-        
+
         self.db_id = db_id
         self.storage_id = storage_id
         if tags is not None:
             self.tags = set(tags)
         else:
             self.tags = set()
-        
+
     @property
     def body(self):
         return self._body
-            
+
     @body.setter
     def body(self, bs):
         self.headers_only = False
@@ -344,37 +339,37 @@ class HTTPRequest:
         else:
             raise Exception("invalid body type: {}".format(type(bs)))
         self.headers.set("Content-Length", str(len(self._body)))
-        
+
     @property
     def content_length(self):
         if 'content-length' in self.headers:
             return int(self.headers.get('content-length'))
         return len(self.body)
-        
+
     def status_line(self):
         sline = "{method} {path} HTTP/{proto_major}.{proto_minor}".format(
             method=self.method, path=self.url.geturl(), proto_major=self.proto_major,
             proto_minor=self.proto_minor).encode()
         return sline
-    
+
     def headers_section(self):
         message = self.status_line() + b"\r\n"
         for k, v in self.headers.pairs():
             message += "{}: {}\r\n".format(k, v).encode()
         return message
-        
+
     def full_message(self):
         message = self.headers_section()
         message += b"\r\n"
         message += self.body
         return message
-    
+
     def parameters(self):
         try:
             return parse_qs(self.body.decode(), keep_blank_values=True)
         except Exception:
             return []
-    
+
     def param_iter(self, ignore_content_type=False):
         if not ignore_content_type:
             if "content-type" not in self.headers:
@@ -384,12 +379,12 @@ class HTTPRequest:
         for k, vs in self.parameters().items():
             for v in vs:
                 yield k, v
-                
+
     def set_param(self, key, val):
         params = self.parameters()
         params[key] = [val]
         self.body = urlencode(params)
-        
+
     def add_param(self, key, val):
         params = self.parameters()
         if key in params:
@@ -397,12 +392,12 @@ class HTTPRequest:
         else:
             params[key] = [val]
         self.body = urlencode(params)
-        
+
     def del_param(self, key):
         params = self.parameters()
         del params[key]
         self.body = urlencode(params)
-        
+
     def set_params(self, params):
         self.body = urlencode(params)
 
@@ -413,22 +408,22 @@ class HTTPRequest:
             return cookie
         except Exception as e:
             return hcookies.BaseCookie()
-    
+
     def cookie_iter(self):
         c = self.cookies()
         for k in c:
             yield k, c[k].value
-                
+
     def set_cookie(self, key, val):
         c = self.cookies()
         c[key] = val
         self.set_cookies(c)
-        
+
     def del_cookie(self, key):
         c = self.cookies()
         del c[key]
         self.set_cookies(c)
-        
+
     def set_cookies(self, c):
         if isinstance(c, hcookies.BaseCookie):
             # it's a basecookie
@@ -472,7 +467,7 @@ class HTTPRequest:
             for k, v in c.items():
                 new_cookies[k] = v
         self.set_cookies(new_cookies)
-        
+
     def copy(self):
         return HTTPRequest(
             method=self.method,
@@ -487,7 +482,7 @@ class HTTPRequest:
             tags=copy.deepcopy(self.tags),
             headers_only=self.headers_only,
         )
-    
+
 
 class HTTPResponse:
     def __init__(self, status_code=200, reason="OK", proto_major=1, proto_minor=1,
@@ -502,12 +497,12 @@ class HTTPResponse:
             for k, vs in headers.items():
                 for v in vs:
                     self.headers.add(k, v)
-        
+
         self.headers_only = headers_only
         self._body = bytes()
         if not headers_only:
             self.body = body
-        
+
         self.unmangled = None
         self.db_id = db_id
         self.storage = storage_id
@@ -526,7 +521,7 @@ class HTTPResponse:
         else:
             raise Exception("invalid body type: {}".format(type(bs)))
         self.headers.set("Content-Length", str(len(self._body)))
-        
+
     @property
     def content_length(self):
         if 'content-length' in self.headers:
@@ -550,7 +545,7 @@ class HTTPResponse:
         message += b"\r\n"
         message += self.body
         return message
-    
+
     def cookies(self):
         try:
             cookie = hcookies.BaseCookie()
@@ -564,17 +559,17 @@ class HTTPResponse:
         c = self.cookies()
         for k in c:
             yield k, c[k].value
-                
+
     def set_cookie(self, key, val):
         c = self.cookies()
         c[key] = val
         self.set_cookies(c)
-        
+
     def del_cookie(self, key):
         c = self.cookies()
         del c[key]
         self.set_cookies(c)
-        
+
     def set_cookies(self, c):
         self.headers.delete("set-cookie")
         if isinstance(c, hcookies.BaseCookie):
@@ -597,6 +592,7 @@ class HTTPResponse:
             headers_only=self.headers_only,
         )
 
+
 class WSMessage:
     def __init__(self, is_binary=True, message=bytes(), to_server=True,
                  timestamp=None, db_id="", storage_id=0):
@@ -604,11 +600,11 @@ class WSMessage:
         self.message = message
         self.to_server = to_server
         self.timestamp = timestamp or datetime.datetime(1970, 1, 1)
-        
+
         self.unmangled = None
         self.db_id = db_id
         self.storage = storage_id
-        
+
     def copy(self):
         return WSMessage(
             is_binary=self.is_binary,
@@ -616,11 +612,13 @@ class WSMessage:
             to_server=self.to_server,
         )
 
+
 ScopeResult = namedtuple("ScopeResult", ["is_custom", "filter"])
 ListenerResult = namedtuple("ListenerResult", ["lid", "addr"])
 GenPemCertsResult = namedtuple("GenPemCertsResult", ["key_pem", "cert_pem"])
 SavedQuery = namedtuple("SavedQuery", ["name", "query"])
 SavedStorage = namedtuple("SavedStorage", ["storage_id", "description"])
+
 
 def messagingFunction(func):
     def f(self, *args, **kwargs):
@@ -631,9 +629,11 @@ def messagingFunction(func):
         with self.message_lock:
             return func(self, *args, **kwargs)
     return f
-        
+
+
 class ProxyConnection:
     next_id = 1
+
     def __init__(self, kind="", addr=""):
         self.connid = ProxyConnection.next_id
         ProxyConnection.next_id += 1
@@ -647,16 +647,16 @@ class ProxyConnection:
         self.kind = None
         self.addr = None
         self.int_thread = None
-        
+
         if kind.lower() == "tcp":
             tcpaddr, port = addr.rsplit(":", 1)
             self.connect_tcp(tcpaddr, int(port))
         elif kind.lower() == "unix":
             self.connect_unix(addr)
-    
+
     def __enter__(self):
         return self
-    
+
     def __exit__(self, exc_type, exc_value, traceback):
         self.close()
 
@@ -675,14 +675,14 @@ class ProxyConnection:
         self.closed = False
         self.kind = "unix"
         self.addr = addr
-        
+
     @property
     def maddr(self):
         if self.kind is not None:
             return "{}:{}".format(self.kind, self.addr)
         else:
             return None
-        
+
     def close(self):
         self.sbuf.close()
         if self.parent_client is not None:
@@ -691,40 +691,40 @@ class ProxyConnection:
             except KeyError:
                 pass
         self.closed = True
-    
+
     def read_message(self):
-        l = self.sbuf.readline()
+        ln = self.sbuf.readline()
         if self.debug:
-            print("<({}) {}".format(self.connid, l))
-        j = json.loads(l)
-        if "Success" in j and j["Success"] == False:
+            print("<({}) {}".format(self.connid, ln))
+        j = json.loads(ln)
+        if ("Success" in j) and (j["Success"] is False):
             if "Reason" in j:
                 raise MessageError(j["Reason"])
             raise MessageError("unknown error")
         return j
-    
+
     def submit_command(self, cmd):
-        ln = json.dumps(cmd).encode()+b"\n"
+        ln = json.dumps(cmd).encode() + b"\n"
         if self.debug:
             print(">({}) {}".format(self.connid, ln.decode()[:-1]))
         self.sbuf.send(ln)
-        
+
     def reqrsp_cmd(self, cmd):
         self.submit_command(cmd)
         ret = self.read_message()
         if ret is None:
             raise Exception()
         return ret
-    
+
     ###########
-    ## Commands
-    
+    # Commands
+
     @messagingFunction
     def ping(self):
         cmd = {"Command": "Ping"}
         result = self.reqrsp_cmd(cmd)
         return result["Ping"]
-    
+
     @messagingFunction
     def submit(self, req, storage=0):
         cmd = {
@@ -743,10 +743,9 @@ class ProxyConnection:
         req.db_id = newreq.db_id
 
         req.storage_id = storage
-    
+
     @messagingFunction
     def save_new(self, req, storage):
-        reqd = encode_req(req)
         cmd = {
             "Command": "SaveNew",
             "Request": encode_req(req),
@@ -756,7 +755,7 @@ class ProxyConnection:
         req.db_id = result["DbId"]
         req.storage_id = storage
         return result["DbId"]
-    
+
     def _query_storage(self, q, storage, headers_only=False, max_results=0):
         cmd = {
             "Command": "StorageQuery",
@@ -775,11 +774,11 @@ class ProxyConnection:
             if req.unmangled is not None:
                 unmangled.add(req.unmangled.db_id)
         return [r for r in reqs if r.db_id not in unmangled]
-        
+
     @messagingFunction
     def query_storage(self, q, storage, max_results=0, headers_only=False):
         return self._query_storage(q, storage, headers_only=headers_only, max_results=max_results)
-        
+
     @messagingFunction
     def req_by_id(self, reqid, storage, headers_only=False):
         results = self._query_storage([[["dbid", "is", reqid]]], storage,
@@ -787,7 +786,7 @@ class ProxyConnection:
         if len(results) == 0:
             raise MessageError("request with id {} does not exist".format(reqid))
         return results[0]
-    
+
     @messagingFunction
     def set_scope(self, filt):
         cmd = {
@@ -795,7 +794,7 @@ class ProxyConnection:
             "Query": filt,
         }
         self.reqrsp_cmd(cmd)
-        
+
     @messagingFunction
     def get_scope(self):
         cmd = {
@@ -804,7 +803,7 @@ class ProxyConnection:
         result = self.reqrsp_cmd(cmd)
         ret = ScopeResult(result["IsCustom"], result["Query"])
         return ret
-    
+
     @messagingFunction
     def add_tag(self, reqid, tag, storage):
         cmd = {
@@ -833,7 +832,7 @@ class ProxyConnection:
             "Storage": storage,
         }
         self.reqrsp_cmd(cmd)
-        
+
     @messagingFunction
     def all_saved_queries(self, storage):
         cmd = {
@@ -874,7 +873,7 @@ class ProxyConnection:
             "Storage": storage,
         }
         self.reqrsp_cmd(cmd)
-        
+
     @messagingFunction
     def add_listener(self, addr, port, transparent=False, destHost="",
                      destPort=0, destUseTLS=False):
@@ -892,7 +891,7 @@ class ProxyConnection:
         result = self.reqrsp_cmd(cmd)
         lid = result["Id"]
         return lid
-    
+
     @messagingFunction
     def remove_listener(self, lid):
         cmd = {
@@ -900,7 +899,7 @@ class ProxyConnection:
             "Id": lid,
         }
         self.reqrsp_cmd(cmd)
-        
+
     @messagingFunction
     def get_listeners(self):
         cmd = {
@@ -909,9 +908,9 @@ class ProxyConnection:
         result = self.reqrsp_cmd(cmd)
         results = []
         for r in result["Results"]:
-            results.append(r["Id"], r["Addr"])
+            results.append((r["Id"], r["Addr"]))
         return results
-    
+
     @messagingFunction
     def load_certificates(self, cert_file, pkey_file):
         cmd = {
@@ -920,7 +919,7 @@ class ProxyConnection:
             "CertificateFile": cert_file,
         }
         self.reqrsp_cmd(cmd)
-        
+
     @messagingFunction
     def set_certificates(self, pkey_pem, cert_pem):
         cmd = {
@@ -929,7 +928,7 @@ class ProxyConnection:
             "CertificatePEMData": cert_pem,
         }
         self.reqrsp_cmd(cmd)
-        
+
     @messagingFunction
     def clear_certificates(self):
         cmd = {
@@ -954,7 +953,7 @@ class ProxyConnection:
         result = self.reqrsp_cmd(cmd)
         ret = GenPemCertsResult(result["KeyPEMData"], result["CertificatePEMData"])
         return ret
-    
+
     @messagingFunction
     def validate_query(self, query):
         cmd = {
@@ -962,7 +961,7 @@ class ProxyConnection:
             "Query": query,
         }
         try:
-            result = self.reqrsp_cmd(cmd)
+            self.reqrsp_cmd(cmd)
         except MessageError as e:
             raise InvalidQuery(str(e))
 
@@ -979,7 +978,7 @@ class ProxyConnection:
             cmd["StorageId"] = storage_id
         result = self.reqrsp_cmd(cmd)
         return result["Result"]
-        
+
     @messagingFunction
     def add_sqlite_storage(self, path, desc):
         cmd = {
@@ -1000,12 +999,12 @@ class ProxyConnection:
         return result["StorageId"]
 
     @messagingFunction
-    def close_storage(self, strage_id):
+    def close_storage(self, storage_id):
         cmd = {
             "Command": "CloseStorage",
             "StorageId": storage_id,
         }
-        result = self.reqrsp_cmd(cmd)
+        self.reqrsp_cmd(cmd)
 
     @messagingFunction
     def set_proxy_storage(self, storage_id):
@@ -1013,7 +1012,7 @@ class ProxyConnection:
             "Command": "SetProxyStorage",
             "StorageId": storage_id,
         }
-        result = self.reqrsp_cmd(cmd)
+        self.reqrsp_cmd(cmd)
 
     @messagingFunction
     def list_storage(self):
@@ -1028,7 +1027,7 @@ class ProxyConnection:
 
     @messagingFunction
     def set_proxy(self, use_proxy=False, proxy_host="", proxy_port=0, use_creds=False,
-            username="", password="", is_socks=False):
+                  username="", password="", is_socks=False):
         cmd = {
             "Command": "SetProxy",
             "UseProxy": use_proxy,
@@ -1040,7 +1039,7 @@ class ProxyConnection:
             "Password": password,
         }
         self.reqrsp_cmd(cmd)
-        
+
     @messagingFunction
     def intercept(self, macro):
         # Run an intercepting macro until closed
@@ -1058,7 +1057,7 @@ class ProxyConnection:
         except Exception as e:
             self.is_interactive = False
             raise e
-        
+
         def run_macro():
             iditer = count()
             threads = {}
@@ -1141,10 +1140,10 @@ class ProxyConnection:
                                             args=(msg,))
                 threads[tid] = mangle_thread
                 mangle_thread.start()
-        
+
         self.int_thread = ProxyThread(target=run_macro)
         self.int_thread.start()
-    
+
     @messagingFunction
     def watch_storage(self, storage_id=-1, headers_only=True):
         # Generator that generates request, response, and wsmessages as they
@@ -1159,7 +1158,7 @@ class ProxyConnection:
         except Exception as e:
             self.is_interactive = False
             raise e
-        
+
         while True:
             msg = self.read_message()
             if msg["Request"]:
@@ -1176,11 +1175,34 @@ class ProxyConnection:
                                              headers_only=headers_only)
             yield msg
 
+    @messagingFunction
+    def set_plugin_value(self, key, value, storage_id):
+        cmd = {
+            "Command": "SetPluginValue",
+            "Storage": storage_id,
+            "Key": key,
+            "Value": value,
+        }
+        self.reqrsp_cmd(cmd)
+
+    @messagingFunction
+    def get_plugin_value(self, key, storage_id):
+        cmd = {
+            "Command": "GetPluginValue",
+            "Storage": storage_id,
+            "Key": key,
+        }
+        result = self.reqrsp_cmd(cmd)
+        return result["Value"]
+
+
 ActiveStorage = namedtuple("ActiveStorage", ["type", "storage_id", "prefix"])
+
 
 def _serialize_storage(stype, prefix):
     return "{}|{}".format(stype, prefix)
-        
+
+
 class ProxyClient:
     def __init__(self, binary=None, debug=False, conn_addr=None):
         self.binloc = binary
@@ -1189,25 +1211,25 @@ class ProxyClient:
         self.laddr = None
         self.debug = debug
         self.conn_addr = conn_addr
-        
+
         self.conns = set()
-        self.msg_conn = None # conn for single req/rsp messages
-        
+        self.msg_conn = None  # conn for single req/rsp messages
+
         self.context = RequestContext(self)
-        
+
         self.storage_by_id = {}
         self.storage_by_prefix = {}
         self.proxy_storage = None
         self.inmem_storage = None
-        
+
         self.reqrsp_methods = {
             "submit_command",
-            #"reqrsp_cmd",
+            # "reqrsp_cmd",
             "ping",
-            #"submit",
-            #"save_new",
-            #"query_storage",
-            #"req_by_id",
+            # "submit",
+            # "save_new",
+            # "query_storage",
+            # "req_by_id",
             "set_scope",
             "get_scope",
             # "add_tag",
@@ -1226,25 +1248,27 @@ class ProxyClient:
             "generate_certificates",
             "generate_pem_certificates",
             "validate_query",
-            #"check_request",
+            # "check_request",
             "list_storage",
             # "add_sqlite_storage",
             # "add_in_memory_storage",
             # "close_storage",
             # "set_proxy_storage",
-            "set_proxy"
+            "set_proxy",
+            # "set_plugin_value",
+            # "get_plugin_value",
         }
-        
+
     def __enter__(self):
         if self.conn_addr is not None:
             self.msg_connect(self.conn_addr)
         else:
             self.execute_binary(binary=self.binloc, debug=self.debug)
         return self
-    
+
     def __exit__(self, exc_type, exc_value, traceback):
         self.close()
-        
+
     def __getattr__(self, name):
         if name in self.reqrsp_methods:
             return getattr(self.msg_conn, name)
@@ -1256,7 +1280,7 @@ class ProxyClient:
             return "{}:{}".format(self.ltype, self.laddr)
         else:
             return None
-        
+
     def execute_binary(self, binary=None, debug=False, listen_addr=None):
         self.binloc = binary
         args = [self.binloc]
@@ -1272,12 +1296,12 @@ class ProxyClient:
         # Wait for it to start and make connection
         listenstr = self.proxy_proc.stdout.readline().rstrip()
         self.msg_connect(listenstr.decode())
-        
+
     def msg_connect(self, addr):
         self.ltype, self.laddr = addr.split(":", 1)
         self.msg_conn = self.new_conn()
         self._get_storage()
-        
+
     def close(self):
         conns = list(self.conns)
         for conn in conns:
@@ -1291,13 +1315,13 @@ class ProxyClient:
         conn.debug = self.debug
         self.conns.add(conn)
         return conn
-    
+
     # functions involving storage
-    
+
     def _add_storage(self, storage, prefix):
         self.storage_by_prefix[prefix] = storage
         self.storage_by_id[storage.storage_id] = storage
-        
+
     def _clear_storage(self):
         self.storage_by_prefix = {}
         self.storage_by_id = {}
@@ -1309,7 +1333,7 @@ class ProxyClient:
             stype, prefix = s.description.split("|")
             storage = ActiveStorage(stype, s.storage_id, prefix)
             self._add_storage(storage, prefix)
-    
+
     def parse_reqid(self, reqid):
         if reqid[0].isalpha():
             prefix = reqid[0]
@@ -1338,7 +1362,7 @@ class ProxyClient:
     def storage_iter(self):
         for _, s in self.storage_by_id.items():
             yield s
-            
+
     def _stg_or_def(self, storage):
         if storage is None:
             return self.proxy_storage
@@ -1346,13 +1370,13 @@ class ProxyClient:
 
     def is_in_context(self, req):
         return self.check_request(self.context.query, req)
-    
+
     def in_context_requests(self, headers_only=False, max_results=0):
         return self.query_storage(self.context.query,
                                   headers_only=headers_only,
                                   max_results=max_results)
 
-    def in_context_requests_async(self, slot, signal, *args, **kwargs):
+    def in_context_requests_async(self, slot, headers_only=False, max_results=0, *args, **kwargs):
         return self.query_storage(slot,
                                   self.context.query,
                                   headers_only=headers_only,
@@ -1368,16 +1392,16 @@ class ProxyClient:
         for reqh in ret:
             req = self.req_by_id(reqh.db_id, storage_id=reqh.storage_id)
             yield req
-    
+
     def get_reqid(self, req):
         prefix = ""
         if req.storage_id in self.storage_by_id:
             s = self.storage_by_id[req.storage_id]
             prefix = s.prefix
         return "{}{}".format(prefix, req.db_id)
-    
+
     # functions that don't just pass through to underlying conn
-    
+
     def add_sqlite_storage(self, path, prefix):
         desc = _serialize_storage("sqlite", prefix)
         sid = self.msg_conn.add_sqlite_storage(path, desc)
@@ -1391,25 +1415,34 @@ class ProxyClient:
         s = ActiveStorage(type="inmem", storage_id=sid, prefix=prefix)
         self._add_storage(s, prefix)
         return s
-    
+
     def close_storage(self, storage_id):
         s = self.storage_by_id[storage_id]
         self.msg_conn.close_storage(s.storage_id)
         del self.storage_by_id[s.storage_id]
-        del self.storage_by_prefix[s.storage_prefix]
-        
+        del self.storage_by_prefix[s.prefix]
+
     def set_proxy_storage(self, storage_id):
         s = self.storage_by_id[storage_id]
         self.msg_conn.set_proxy_storage(s.storage_id)
         self.proxy_storage = storage_id
-        
+
+    def set_storage_prefix(self, storage_id, prefix):
+        if prefix in self.storage_by_prefix:
+            raise Exception("prefix already exists")
+        s = self.storage_by_id[storage_id]
+        del self.storage_by_prefix[s.prefix]
+        news = ActiveStorage(type=s.type, prefix=prefix, storage_id=s.storage_id)
+        self.storage_by_prefix[news.prefix] = news
+        self.storage_by_id[storage_id] = news
+
     def save_new(self, req, inmem=False, storage=None):
         if inmem:
             storage = self.inmem_storage
         else:
             storage = self._stg_or_def(storage)
         self.msg_conn.save_new(req, storage=storage)
-        
+
     def submit(self, req, save=False, inmem=False, storage=None):
         if save:
             storage = self._stg_or_def(storage)
@@ -1429,25 +1462,26 @@ class ProxyClient:
             results += conn.query_storage(q, max_results=max_results,
                                           headers_only=headers_only,
                                           storage=storage)
+
         def kfunc(req):
             if req.time_start is None:
                 return datetime.datetime.utcfromtimestamp(0)
             return req.time_start
+
         results.sort(key=kfunc)
         results = [r for r in reversed(results)]
         return results
-    
+
     def query_storage_async(self, slot, *args, **kwargs):
         def perform_query():
             try:
                 with self.new_conn() as c:
                     r = self.query_storage(*args, conn=c, **kwargs)
                     slot.emit(r)
-            except:
+            except Exception:
                 pass
         ProxyThread(target=perform_query).start()
-        
-            
+
     def req_by_id(self, reqid, storage_id=None, headers_only=False):
         if storage_id is None:
             storage, db_id = self.parse_reqid(reqid)
@@ -1457,11 +1491,11 @@ class ProxyClient:
         retreq = self.msg_conn.req_by_id(db_id, headers_only=headers_only,
                                          storage=storage_id)
 
-        if reqid[0] == 's': # `u` is handled by parse_reqid
+        if reqid[0] == 's':  # `u` is handled by parse_reqid
             retreq.response = retreq.response.unmangled
 
         return retreq
-    
+
     def check_request(self, query, req=None, reqid=""):
         if req is not None:
             return self.msg_conn.check_request(query, req=req)
@@ -1493,6 +1527,12 @@ class ProxyClient:
     def delete_query(self, name, storage=None):
         self.msg_conn.delete_query(name, storage=self._stg_or_def(storage))
 
+    def set_plugin_value(self, key, value, storage=None):
+        self.msg_conn.set_plugin_value(key, value, self._stg_or_def(storage))
+
+    def get_plugin_value(self, key, storage=None):
+        return self.msg_conn.get_plugin_value(key, self._stg_or_def(storage))
+
 
 def decode_req(result, headers_only=False, storage=0):
     if "StartTime" in result and result["StartTime"] > 0:
@@ -1504,7 +1544,7 @@ def decode_req(result, headers_only=False, storage=0):
         time_end = time_from_nsecs(result["EndTime"])
     else:
         time_end = None
-        
+
     if "DbId" in result:
         db_id = result["DbId"]
     else:
@@ -1530,9 +1570,8 @@ def decode_req(result, headers_only=False, storage=0):
         tags=tags,
         headers_only=headers_only,
         db_id=db_id,
-        storage_id=storage,
-        )
-    
+        storage_id=storage)
+
     if "Unmangled" in result:
         ret.unmangled = decode_req(result["Unmangled"], headers_only=headers_only, storage=storage)
     if "Response" in result:
@@ -1541,6 +1580,7 @@ def decode_req(result, headers_only=False, storage=0):
         for wsm in result["WSMessages"]:
             ret.ws_messages.append(decode_ws(wsm, storage=storage))
     return ret
+
 
 def decode_rsp(result, headers_only=False, storage=0):
     ret = HTTPResponse(
@@ -1553,10 +1593,11 @@ def decode_rsp(result, headers_only=False, storage=0):
         headers_only=headers_only,
         storage_id=storage,
     )
-    
+
     if "Unmangled" in result:
         ret.unmangled = decode_rsp(result["Unmangled"], headers_only=headers_only, storage=storage)
     return ret
+
 
 def decode_ws(result, storage=0):
     timestamp = None
@@ -1575,26 +1616,27 @@ def decode_ws(result, storage=0):
         db_id=db_id,
         storage_id=storage,
     )
-    
+
     if "Unmangled" in result:
         ret.unmangled = decode_ws(result["Unmangled"], storage=storage)
 
     return ret
 
+
 def encode_req(req, int_rsp=False):
     msg = {
-	"DestHost": req.dest_host,
-	"DestPort": req.dest_port,
-	"UseTLS": req.use_tls,
-	"Method": req.method,
-	"Path": req.url.geturl(),
-	"ProtoMajor": req.proto_major,
-	"ProtoMinor": req.proto_major,
-	"Headers": req.headers.dict(),
+        "DestHost": req.dest_host,
+        "DestPort": req.dest_port,
+        "UseTLS": req.use_tls,
+        "Method": req.method,
+        "Path": req.url.geturl(),
+        "ProtoMajor": req.proto_major,
+        "ProtoMinor": req.proto_major,
+        "Headers": req.headers.dict(),
         "Tags": list(req.tags),
-	"Body": base64.b64encode(copy.copy(req.body)).decode(),
+        "Body": base64.b64encode(copy.copy(req.body)).decode(),
     }
-    
+
     if not int_rsp:
         msg["StartTime"] = time_to_nsecs(req.time_start)
         msg["EndTime"] = time_to_nsecs(req.time_end)
@@ -1606,27 +1648,29 @@ def encode_req(req, int_rsp=False):
         for wsm in req.ws_messages:
             msg["WSMessages"].append(encode_ws(wsm))
     return msg
-            
+
+
 def encode_rsp(rsp, int_rsp=False):
     msg = {
-	"ProtoMajor": rsp.proto_major,
-	"ProtoMinor": rsp.proto_minor,
-	"StatusCode": rsp.status_code,
-	"Reason": rsp.reason,
-	"Headers": rsp.headers.dict(),
-	"Body": base64.b64encode(copy.copy(rsp.body)).decode(),
+        "ProtoMajor": rsp.proto_major,
+        "ProtoMinor": rsp.proto_minor,
+        "StatusCode": rsp.status_code,
+        "Reason": rsp.reason,
+        "Headers": rsp.headers.dict(),
+        "Body": base64.b64encode(copy.copy(rsp.body)).decode(),
     }
-    
+
     if not int_rsp:
         if rsp.unmangled is not None:
             msg["Unmangled"] = encode_rsp(rsp.unmangled)
     return msg
 
+
 def encode_ws(ws, int_rsp=False):
     msg = {
-	"Message": base64.b64encode(ws.message).decode(),
-	"IsBinary": ws.is_binary,
-	"toServer": ws.to_server,
+        "Message": base64.b64encode(ws.message).decode(),
+        "IsBinary": ws.is_binary,
+        "toServer": ws.to_server,
     }
     if not int_rsp:
         if ws.unmangled is not None:
@@ -1635,31 +1679,36 @@ def encode_ws(ws, int_rsp=False):
         msg["DbId"] = ws.db_id
     return msg
 
+
 def time_from_nsecs(nsecs):
-    secs = nsecs/1000000000
+    secs = nsecs / 1000000000
     t = datetime.datetime.utcfromtimestamp(secs)
     return t
+
 
 def time_to_nsecs(t):
     if t is None:
         return None
-    secs = (t-datetime.datetime(1970,1,1)).total_seconds()
+    secs = (t - datetime.datetime(1970, 1, 1)).total_seconds()
     return int(math.floor(secs * 1000000000))
+
 
 RequestStatusLine = namedtuple("RequestStatusLine", ["method", "path", "proto_major", "proto_minor"])
 ResponseStatusLine = namedtuple("ResponseStatusLine", ["proto_major", "proto_minor", "status_code", "reason"])
 
+
 def parse_req_sline(sline):
     if len(sline.split(b' ')) == 3:
         verb, path, version = sline.split(b' ')
-    elif len(parts) == 2:
-        verb, version = parts.split(b' ')
+    elif len(sline.split(b' ')) == 2:
+        verb, version = sline.split(b' ')
         path = b''
     else:
-        raise ParseError("malformed statusline")
-    raw_version = version[5:] # strip HTTP/
+        raise Exception("malformed statusline")
+    raw_version = version[5:]  # strip HTTP/
     pmajor, pminor = raw_version.split(b'.', 1)
     return RequestStatusLine(verb.decode(), path.decode(), int(pmajor), int(pminor))
+
 
 def parse_rsp_sline(sline):
     if len(sline.split(b' ')) > 2:
@@ -1667,9 +1716,10 @@ def parse_rsp_sline(sline):
     else:
         version, status_code = sline.split(b' ', 1)
         reason = ''
-    raw_version = version[5:] # strip HTTP/
+    raw_version = version[5:]  # strip HTTP/
     pmajor, pminor = raw_version.split(b'.', 1)
     return ResponseStatusLine(int(pmajor), int(pminor), int(status_code), reason.decode())
+
 
 def _parse_message(bs, sline_parser):
     header_env, body = re.split(br"(?:\r\n|\n)(?:\r\n|\n)", bs, 1)
@@ -1681,7 +1731,8 @@ def _parse_message(bs, sline_parser):
             h.add(k.decode(), v.decode())
     h.add("Content-Length", str(len(body)))
     return (sline_parser(status_line), h, body)
-        
+
+
 def parse_request(bs, dest_host='', dest_port=80, use_tls=False):
     req_sline, headers, body = _parse_message(bs, parse_req_sline)
     req = HTTPRequest(
@@ -1693,9 +1744,9 @@ def parse_request(bs, dest_host='', dest_port=80, use_tls=False):
         body=body,
         dest_host=dest_host,
         dest_port=dest_port,
-        use_tls=use_tls,
-        )
+        use_tls=use_tls)
     return req
+
 
 def parse_response(bs):
     rsp_sline, headers, body = _parse_message(bs, parse_rsp_sline)
@@ -1705,9 +1756,9 @@ def parse_response(bs):
         proto_major=rsp_sline.proto_major,
         proto_minor=rsp_sline.proto_minor,
         headers=headers.dict(),
-        body=body,
-        )
+        body=body)
     return rsp
+
 
 def get_full_url(req):
     netloc = req.dest_host
@@ -1728,4 +1779,3 @@ def get_full_url(req):
     u.query = rpath.query
     u.fragment = rpath.fragment
     return u.geturl()
-                

@@ -1,9 +1,7 @@
-from .util import printable_data, display_error_box
-from .proxy import InterceptMacro, HTTPRequest, parse_request
+from .util import display_error_box
 from .reqview import ReqViewWidget
-from PyQt5.QtWidgets import QWidget, QTableWidget, QTableWidgetItem, QGridLayout, QListWidget, QHeaderView, QAbstractItemView, QPlainTextEdit, QTabWidget, QVBoxLayout, QHBoxLayout, QPushButton
-from PyQt5.QtGui import QFont
-from PyQt5.QtCore import pyqtSlot, pyqtSignal, QObject
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton
+from PyQt5.QtCore import pyqtSlot
 
 
 class RepeaterWidget(QWidget):
@@ -11,7 +9,7 @@ class RepeaterWidget(QWidget):
     def __init__(self, client):
         QWidget.__init__(self)
         self.client = client
-        
+
         self.setLayout(QVBoxLayout())
         self.layout().setSpacing(0)
         self.layout().setContentsMargins(0, 0, 0, 0)
@@ -22,37 +20,43 @@ class RepeaterWidget(QWidget):
         submitButton.clicked.connect(self.submit)
         buttons.addWidget(submitButton)
         buttons.addStretch()
-        
-        self.reqview = ReqViewWidget()
-        self.reqview.req_edit.setReadOnly(False)
+
+        self.reqview = ReqViewWidget(tag_tab=True)
+        self.reqview.set_read_only(False)
+        self.reqview.set_tags_read_only(False)
         self.layout().addLayout(buttons)
         self.layout().addWidget(self.reqview)
-        
+
         self.req = None
         self.dest_host = ""
         self.dest_port = 80
         self.use_tls = False
-        
+
     def set_request(self, req):
         self.req = req
-        self.reqview.set_request(req)
-        self.dest_host = req.dest_host
-        self.dest_port = req.dest_port
-        self.use_tls = req.use_tls
+        self.dest_host = ""
+        self.dest_port = -1
+        self.use_tls = False
+        if req:
+            self.req = req
+            self.req.tags = set(["repeater"])
+            self.dest_host = req.dest_host
+            self.dest_port = req.dest_port
+            self.use_tls = req.use_tls
+        self.reqview.set_request(self.req)
 
-    #def set_dest(self, host, port, use_tls)
+    @pyqtSlot(set)
+    def update_req_tags(self, tags):
+        if self.req:
+            self.req.tags = tags
 
     @pyqtSlot()
     def submit(self):
-        try:
-            req = parse_request(self.reqview.req_edit.get_bytes())
-        except:
+        req = self.reqview.get_request()
+        if not req:
             display_error_box("Could not parse request")
             return
-        req.dest_host = self.dest_host
-        req.dest_port = self.dest_port
-        req.use_tls = self.use_tls
+        req.tags.add("repeater")
         self.client.submit(req, save=True)
         self.req = req
         self.set_request(req)
-

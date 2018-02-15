@@ -1,33 +1,33 @@
-from .util import printable_data, display_error_box
-from .proxy import InterceptMacro, HTTPRequest, parse_request, parse_response
-from .reqview import ReqViewWidget
+from .util import display_error_box
+from .proxy import InterceptMacro, parse_request, parse_response
 from .hexteditor import ComboEditor
-from PyQt5.QtWidgets import QWidget, QTableWidget, QTableWidgetItem, QGridLayout, QListWidget, QHeaderView, QAbstractItemView, QPlainTextEdit, QTabWidget, QVBoxLayout, QHBoxLayout, QPushButton
-from PyQt5.QtGui import QFont
-from PyQt5.QtCore import pyqtSlot, pyqtSignal, QObject, QThread
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton
+from PyQt5.QtCore import pyqtSlot, pyqtSignal, QObject
 
 import threading
 
 edit_queue = []
 
+
 class InterceptEvent:
-    
+
     def __init__(self):
         self.e = threading.Event()
         self.canceled = False
         self.message = None
-        
+
     def wait(self):
         self.e.wait()
         return self.message
-        
+
     def set(self, message):
         self.message = message
         self.e.set()
-        
+
     def cancel(self):
         self.canceled = True
         self.set(None)
+
 
 class InterceptedMessage:
 
@@ -36,7 +36,7 @@ class InterceptedMessage:
         self.response = response
         self.wsmessage = wsmessage
         self.event = InterceptEvent()
-        
+
         self.message_type = None
         if self.request:
             self.message_type = "request"
@@ -44,15 +44,16 @@ class InterceptedMessage:
             self.message_type = "response"
         elif self.wsmessage:
             self.message_type = "wsmessage"
-            
+
+
 class InterceptorMacro(InterceptMacro, QObject):
     """
     A class representing a macro that modifies requests as they pass through the
     proxy
     """
-    
+
     messageReceived = pyqtSignal(InterceptedMessage)
-    
+
     def __init__(self, int_widget):
         InterceptMacro.__init__(self)
         QObject.__init__(self)
@@ -83,6 +84,7 @@ class InterceptorMacro(InterceptMacro, QObject):
         # just don't do this right now
         pass
 
+
 class InterceptorWidget(QWidget):
     def __init__(self, client):
         QWidget.__init__(self)
@@ -91,11 +93,11 @@ class InterceptorWidget(QWidget):
         self.queued_messages = []
         self.editing_message = None
         self.editing = False
-        
+
         self.int_req = False
         self.int_rsp = False
         self.int_ws = False
-        
+
         # layouts
         self.setLayout(QVBoxLayout())
         self.layout().setSpacing(0)
@@ -112,20 +114,18 @@ class InterceptorWidget(QWidget):
         forwardButton = QPushButton("Forward")
         cancelButton = QPushButton("Cancel")
         self.editor = ComboEditor()
-        
+
         intReqButton.setCheckable(True)
         intRspButton.setCheckable(True)
         intWsButton.setCheckable(True)
-        
+
         intWsButton.setEnabled(False)
-        
+
         forwardButton.clicked.connect(self.forward_message)
         cancelButton.clicked.connect(self.cancel_edit)
         intReqButton.toggled.connect(self.int_req_toggled)
         intRspButton.toggled.connect(self.int_rsp_toggled)
         intWsButton.toggled.connect(self.int_ws_toggled)
-
-        #submitButton.clicked.connect(self.submit)
 
         buttons.addWidget(forwardButton)
         buttons.addWidget(cancelButton)
@@ -135,7 +135,7 @@ class InterceptorWidget(QWidget):
         # checkbox for req/rsp/ws
         self.layout().addLayout(buttons)
         self.layout().addWidget(self.editor)
-        
+
     @pyqtSlot(bool)
     def int_req_toggled(self, state):
         self.int_req = state
@@ -150,13 +150,13 @@ class InterceptorWidget(QWidget):
     def int_ws_toggled(self, state):
         self.int_ws = state
         self.restart_intercept()
-        
+
     @pyqtSlot(InterceptedMessage)
     def message_received(self, msg):
         self.queued_messages.append(msg)
         # Update queue list
         self.edit_next_message()
-        
+
     def set_edited_message(self, msg):
         if msg.message_type == "request":
             self.editor.set_bytes(msg.request.full_message())
@@ -165,7 +165,7 @@ class InterceptorWidget(QWidget):
         elif msg.message_type == "wsmessage":
             # this is not gonna work
             self.editor.set_bytes(msg.wsmessage.message)
-    
+
     def edit_next_message(self):
         if self.editing:
             return
@@ -175,7 +175,7 @@ class InterceptorWidget(QWidget):
         self.editing_message = self.queued_messages.pop()
         self.set_edited_message(self.editing_message)
         self.editing = True
-        
+
     @pyqtSlot()
     def forward_message(self):
         if not self.editing:
@@ -183,14 +183,14 @@ class InterceptorWidget(QWidget):
         if self.editing_message.message_type == "request":
             try:
                 req = parse_request(self.editor.get_bytes())
-            except:
+            except Exception:
                 display_error_box("Could not parse request")
                 return
             self.editing_message.event.set(req)
         elif self.editing_message.message_type == "response":
             try:
                 rsp = parse_response(self.editor.get_bytes())
-            except:
+            except Exception:
                 display_error_box("Could not parse response")
                 return
             self.editing_message.event.set(rsp)
@@ -198,14 +198,14 @@ class InterceptorWidget(QWidget):
             pass
         self.editing = False
         self.edit_next_message()
-        
+
     @pyqtSlot()
     def cancel_edit(self):
         if self.editing_message:
             self.editing_message.event.cancel()
         self.editing = False
         self.edit_next_message()
-        
+
     def clear_edit_queue(self):
         while self.queued_messages or self.editing_message:
             if self.editing_message:
@@ -213,12 +213,11 @@ class InterceptorWidget(QWidget):
                 self.editing_message = False
             if self.queued_messages:
                 self.editing_message = self.queued_messages.pop()
-            
-        
+
     def restart_intercept(self):
         self.close()
         self.editor.set_bytes("")
-        self.editing=False
+        self.editing = False
 
         if not (self.int_req or self.int_rsp or self.int_ws):
             return
@@ -229,10 +228,9 @@ class InterceptorWidget(QWidget):
         mangle_macro.intercept_ws = self.int_ws
         self.int_conn = self.client.new_conn()
         self.int_conn.intercept(mangle_macro)
-        
+
     def close(self):
         if self.int_conn:
             self.int_conn.close()
             self.int_conn = None
         self.clear_edit_queue()
-
