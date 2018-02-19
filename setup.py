@@ -23,6 +23,7 @@ setup(name='guppyproxy',
           #'cmd2>=0.6.8',
           #'Jinja2>=2.8',
           'Pygments>=2.0.2',
+          'lxml>=4.1.1',
           'PyQt5>=5.9',
           ],
       classifiers=[
