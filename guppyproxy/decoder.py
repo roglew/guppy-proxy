@@ -58,7 +58,7 @@ def html_decode_helper(s):
 
 def pp_json(s):
     d = json.loads(s.strip())
-    return json.dumps(d, indent=4, sort_keys=True).encode()
+    return json.dumps(d, indent=2, sort_keys=True).encode()
 
 
 class DecoderWidget(QWidget):

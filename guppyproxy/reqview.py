@@ -3,7 +3,7 @@ import re
 from .util import datetime_string
 from .proxy import HTTPRequest, get_full_url, parse_request
 from .hexteditor import ComboEditor
-from PyQt5.QtWidgets import QWidget, QTableWidget, QTableWidgetItem, QGridLayout, QHeaderView, QAbstractItemView, QLineEdit, QTabWidget, QVBoxLayout, QToolButton, QHBoxLayout
+from PyQt5.QtWidgets import QWidget, QTableWidget, QTableWidgetItem, QGridLayout, QHeaderView, QAbstractItemView, QLineEdit, QTabWidget, QVBoxLayout, QToolButton, QHBoxLayout, QStackedLayout
 from PyQt5.QtCore import pyqtSlot, pyqtSignal, Qt
 from pygments.lexer import Lexer
 from pygments.lexers import get_lexer_for_mimetype, TextLexer
@@ -143,6 +143,79 @@ class InfoWidget(QWidget):
             self.infotable.setUpdatesEnabled(True)
 
 
+class ParamWidget(QWidget):
+    def __init__(self, *args, **kwargs):
+        QWidget.__init__(self, *args, **kwargs)
+        self.request = None
+        self.setLayout(QVBoxLayout())
+        self.tab_widget = QTabWidget()
+
+        self.urltable = QTableWidget()
+        self.urltable.setColumnCount(2)
+        self.posttable = QTableWidget()
+        self.posttable.setColumnCount(2)
+        self.cookietable = QTableWidget()
+        self.cookietable.setColumnCount(2)
+
+        self.tab_widget.addTab(self.urltable, "URL")
+        self.tab_widget.addTab(self.posttable, "POST")
+        self.tab_widget.addTab(self.cookietable, "Cookies")
+
+        self.format_table(self.urltable)
+        self.format_table(self.posttable)
+        self.format_table(self.cookietable)
+
+        self.layout().addWidget(self.tab_widget)
+
+    def _add_info(self, table, k, v):
+        row = table.rowCount()
+        table.insertRow(row)
+        item1 = QTableWidgetItem(k)
+        item1.setFlags(item1.flags() ^ Qt.ItemIsEditable)
+        table.setItem(row, 0, item1)
+        table.setItem(row, 1, QTableWidgetItem(v))
+
+    def format_table(self, table):
+        table.verticalHeader().hide()
+        table.horizontalHeader().hide()
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        table.horizontalHeader().setStretchLastSection(True)
+
+    def clear_tables(self):
+        self.urltable.setRowCount(0)
+        self.posttable.setRowCount(0)
+        self.cookietable.setRowCount(0)
+
+    def set_request(self, req):
+        self.urltable.setUpdatesEnabled(False)
+        self.posttable.setUpdatesEnabled(False)
+        self.cookietable.setUpdatesEnabled(False)
+        try:
+            self.clear_tables()
+            if req is None:
+                return
+            post_params = req.parameters()
+            url_params = req.url.parameters()
+            cookies = [(k, v) for k, v in req.cookie_iter()]
+
+            if url_params:
+                for k, vv in url_params.items():
+                    for v in vv:
+                        self._add_info(self.urltable, k, v)
+            if post_params:
+                for k, vv in post_params.items():
+                    for v in vv:
+                        self._add_info(self.posttable, k, v)
+            if cookies:
+                for k, v in cookies:
+                    self._add_info(self.cookietable, k, v)
+        finally:
+            self.urltable.setUpdatesEnabled(True)
+            self.posttable.setUpdatesEnabled(True)
+            self.cookietable.setUpdatesEnabled(True)
+
+
 class TagList(QTableWidget):
     tagsUpdated = pyqtSignal(set)
 
@@ -244,7 +317,7 @@ class TagWidget(QWidget):
 class ReqViewWidget(QWidget):
     requestEdited = pyqtSignal(HTTPRequest)
 
-    def __init__(self, info_tab=False, tag_tab=False, *args, **kwargs):
+    def __init__(self, info_tab=False, param_tab=False, tag_tab=False, *args, **kwargs):
         QWidget.__init__(self, *args, **kwargs)
         self.request = None
         self.setLayout(QVBoxLayout())
@@ -277,6 +350,13 @@ class ReqViewWidget(QWidget):
             self.info_tab = True
             self.info_widg = InfoWidget()
             tab_widget.addTab(self.info_widg, "Info")
+
+        self.param_tab = False
+        self.param_widg = None
+        if param_tab:
+            self.param_tab = True
+            self.param_widg = ParamWidget()
+            tab_widget.addTab(self.param_widg, "Params")
 
         self.tag_tab = False
         self.tag_widg = None
@@ -326,6 +406,8 @@ class ReqViewWidget(QWidget):
         if self.tag_tab:
             if req:
                 self.tag_widg.taglist.set_tags(req.tags)
+        if self.param_tab:
+            self.param_widg.set_request(req)
 
     def update_editors(self):
         self.req_edit.set_bytes(b"")

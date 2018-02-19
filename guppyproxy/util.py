@@ -3,7 +3,9 @@ import string
 import time
 import datetime
 import random
-from .proxy import get_full_url
+from .proxy import get_full_url, Headers
+from pygments.formatters import HtmlFormatter
+from pygments.styles import get_style_by_name
 from PyQt5.QtWidgets import QMessageBox, QMenu, QApplication, QFileDialog
 from PyQt5.QtGui import QColor
 
@@ -164,8 +166,35 @@ def display_req_context(parent, req, event, repeater_widget=None, req_view_widge
             f.write(req.full_message())
 
 
-def str_color(s, lighten=0):
-    hashval = str_hash_code(s)
+def method_color(method):
+    if method.lower() == 'get':
+        return QColor(240, 240, 255)
+
+    if method.lower() == 'post':
+        return QColor(255, 255, 230)
+
+    if method.lower() == 'put':
+        return QColor(255, 240, 240)
+
+    return QColor(255, 255, 255)
+
+def sc_color(sc):
+    if sc[0] == '2':
+        return QColor(240, 255, 240)
+
+    if sc[0] == '3':
+        return QColor(255, 240, 255)
+
+    if sc[0] == '4':
+        return QColor(255, 240, 240)
+
+    if sc[0] == '5':
+        return QColor(255, 255, 230)
+
+    return QColor(255, 255, 255)
+
+def str_color(s, lighten=0, seed=0):
+    hashval = str_hash_code(s)+seed
     gen = random.Random()
     gen.seed(hashval)
     r = gen.randint(lighten, 255)
@@ -274,3 +303,16 @@ def query_to_str(query):
 
         retstr += (' OR '.join(fstrs))
     return retstr
+
+
+def textedit_highlight(text, lexer):
+    from pygments import highlight
+    wrapper_head = """<div class="highlight" style="
+        font-size: 10pt;
+        font-family: monospace;
+        "><pre style="line-height: 100%">"""
+    wrapper_foot = "</pre></div>"
+    highlighted = highlight(text, lexer,
+                            HtmlFormatter(noclasses=True, style=get_style_by_name("colorful"), nowrap=True))
+    highlighted = wrapper_head + highlighted + wrapper_foot
+    return highlighted

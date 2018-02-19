@@ -1,12 +1,136 @@
 import base64
-from .util import printable_data, qtprintable
-from PyQt5.QtWidgets import QWidget, QTextEdit, QTableWidget, QVBoxLayout, QTableWidgetItem, QTabWidget
+from .util import printable_data, qtprintable, textedit_highlight
+from .proxy import _parse_message, Headers
+from PyQt5.QtWidgets import QWidget, QTextEdit, QTableWidget, QVBoxLayout, QTableWidgetItem, QTabWidget, QStackedLayout, QLabel, QComboBox
 from PyQt5.QtGui import QTextCursor, QTextCharFormat, QImage, QColor
 from PyQt5.QtCore import Qt, pyqtSlot
 from pygments import highlight
 from pygments.formatters import HtmlFormatter
 from pygments.lexers import TextLexer
+from pygments.lexers.data import JsonLexer
+from pygments.lexers.html import HtmlLexer
 from pygments.styles import get_style_by_name
+
+
+class PrettyPrintWidget(QWidget):
+    VIEW_NONE = 0
+    VIEW_JSON = 1
+    VIEW_HTMLXML = 2
+    def __init__(self, *args, **kwargs):
+        QWidget.__init__(self, *args, **kwargs)
+        self.headers = Headers()
+        self.data = b''
+        self.view = 0
+        self.setLayout(QVBoxLayout())
+        self.layout().setContentsMargins(0, 0, 0, 0)
+
+        self.stack = QStackedLayout()
+        self.stack.setContentsMargins(0, 0, 0, 0)
+        self.nopp_widg = QLabel("No pretty version available")
+        self.stack.addWidget(self.nopp_widg)
+        self.json_widg = QTextEdit()
+        self.json_widg.setReadOnly(True)
+        self.stack.addWidget(self.json_widg)
+        self.htmlxml_widg = QTextEdit()
+        self.htmlxml_widg.setReadOnly(True)
+        self.stack.addWidget(self.htmlxml_widg)
+
+        self.selector = QComboBox()
+        self.selector.addItem("Manually Select Printer", self.VIEW_NONE)
+        self.selector.addItem("JSON", self.VIEW_JSON)
+        self.selector.addItem("HTML/XML", self.VIEW_HTMLXML)
+        self.selector.currentIndexChanged.connect(self._combo_changed)
+        
+        self.layout().addWidget(self.selector)
+        self.layout().addLayout(self.stack)
+        
+    def guess_format(self):
+        if 'Content-Type' in self.headers:
+            ct = self.headers.get('Content-Type').lower()
+            if 'json' in ct:
+                self.set_view(self.VIEW_JSON)
+            elif 'html' in ct or 'xml' in ct:
+                self.set_view(self.VIEW_HTMLXML)
+            else:
+                self.set_view(self.VIEW_NONE)
+        
+    @pyqtSlot()
+    def _combo_changed(self):
+        field = self.selector.itemData(self.selector.currentIndex())
+        self.set_view(field)
+
+    def set_view(self, view):
+        if view == self.VIEW_NONE:
+            self.clear_output()
+            self.stack.setCurrentIndex(self.VIEW_NONE)
+        elif view == self.VIEW_JSON:
+            self.clear_output()
+            self.fill_json()
+            self.stack.setCurrentIndex(self.VIEW_JSON)
+        elif view == self.VIEW_HTMLXML:
+            self.clear_output()
+            self.fill_htmlxml()
+            self.stack.setCurrentIndex(self.VIEW_HTMLXML)
+        else:
+            return
+        self.selector.setCurrentIndex(view)
+        self.view = view
+        
+    def clear_output(self):
+        self.json_widg.setPlainText("")
+        self.htmlxml_widg.setPlainText("")
+        
+    def set_bytes(self, bs):
+        self.clear_output()
+        self.headers = Headers()
+        self.data = b''
+        if not bs:
+            return
+        _, h, body = _parse_message(bs, lambda x: None)
+        self.headers = h
+        self.data = body
+        
+    def fill_json(self):
+        from .decoder import pp_json
+        self.json_widg.setUndoRedoEnabled(False)
+        self.json_widg.setUpdatesEnabled(False)
+        try:
+            self.json_widg.setPlainText("")
+            if not self.data:
+                return
+            try:
+                j = pp_json(self.data.decode())
+            except Exception:
+                return
+            highlighted = textedit_highlight(j, JsonLexer())
+            self.json_widg.setHtml(highlighted)
+        finally:
+            self.json_widg.setUndoRedoEnabled(True)
+            self.json_widg.setUpdatesEnabled(True)
+            
+    def fill_htmlxml(self):
+        from lxml import etree, html
+
+        self.htmlxml_widg.setUndoRedoEnabled(False)
+        self.htmlxml_widg.setUpdatesEnabled(False)
+        try:
+            self.htmlxml_widg.setPlainText("")
+            if not self.data:
+                return
+            try:
+                fragments = html.fragments_fromstring(self.data.decode())
+                parsed_frags = []
+                for f in fragments:
+                    parsed_frags.append(etree.tostring(f, pretty_print=True))
+                pretty = b''.join(parsed_frags)
+            except Exception:
+                return
+            highlighted = textedit_highlight(pretty, HtmlLexer())
+            self.htmlxml_widg.setHtml(highlighted)
+        finally:
+            self.htmlxml_widg.setUndoRedoEnabled(True)
+            self.htmlxml_widg.setUpdatesEnabled(True)
+
 
 
 class HextEditor(QWidget):
@@ -24,6 +148,7 @@ class HextEditor(QWidget):
         self.lexer = TextLexer()
 
         self.textedit = QTextEdit()
+        self.textedit.setAcceptRichText(False)
         doc = self.textedit.document()
         font = doc.defaultFont()
         font.setFamily("Courier New")
@@ -96,14 +221,7 @@ class HextEditor(QWidget):
         if lexer:
             self.lexer = lexer
         printable = printable_data(bs)
-        wrapper_head = """<div class="highlight" style="
-        font-size: 10pt;
-        font-family: monospace;
-        "><pre style="line-height: 100%">"""
-        wrapper_foot = "</pre></div>"
-        highlighted = highlight(printable, self.lexer,
-                                HtmlFormatter(noclasses=True, style=get_style_by_name("colorful"), nowrap=True))
-        highlighted = wrapper_head + highlighted + wrapper_foot
+        highlighted = textedit_highlight(printable, self.lexer)
         self.textedit.setHtml(highlighted)
 
         self.textedit.setUndoRedoEnabled(True)
@@ -279,47 +397,67 @@ class ComboEditor(QWidget):
         self.tabWidget = QTabWidget()
         self.hexteditor = HextEditor()
         self.hexeditor = HexEditor()
+        self.ppwidg = PrettyPrintWidget()
 
         self.hexteditor_ind = self.tabWidget.count()
         self.tabWidget.addTab(self.hexteditor, "Text")
         self.hexeditor_ind = self.tabWidget.count()
         self.tabWidget.addTab(self.hexeditor, "Hex")
+        self.pp_ind = self.tabWidget.count()
+        self.tabWidget.addTab(self.ppwidg, "Pretty")
         self.tabWidget.currentChanged.connect(self._tab_changed)
-        self.hext_selected = True
+
+        self.previous_tab = self.tabWidget.currentIndex()
 
         self.layout().addWidget(self.tabWidget)
 
+
     @pyqtSlot(int)
     def _tab_changed(self, i):
-        if i == self.hexteditor_ind:
-            self.hext_selected = True
+        # commit data from old tab
+        if self.previous_tab == self.hexteditor_ind:
+            self.data = self.hexteditor.get_bytes()
+        if self.previous_tab == self.hexeditor_ind:
             self.data = self.hexeditor.get_bytes()
+
+        # set up new tab
+        if i == self.hexteditor_ind:
             if self.hexteditor.pretty_mode:
                 self.hexteditor.set_bytes_highlighted(self.data)
             else:
                 self.hexteditor.set_bytes(self.data)
         if i == self.hexeditor_ind:
-            self.hext_selected = False
-            self.data = self.hexteditor.get_bytes()
             self.hexeditor.set_bytes(self.data)
+        if i == self.pp_ind:
+            self.ppwidg.set_bytes(self.data)
+            self.ppwidg.guess_format()
+
+        # update previous tab
+        self.previous_tab = self.tabWidget.currentIndex()
+        
 
     @pyqtSlot(bytes)
     def set_bytes(self, bs):
         self.data = bs
-        if self.hext_selected:
+        self.tabWidget.setCurrentIndex(0)
+        if self.tabWidget.currentIndex() == self.hexteditor_ind:
             self.hexteditor.set_bytes(bs)
-        else:
+        elif self.tabWidget.currentIndex() == self.hexeditor_ind:
             self.hexeditor.set_bytes(bs)
+        elif self.tabWidget.currentIndex() == self.pp_ind:
+            self.ppwidg.set_bytes(bs)
+
 
     @pyqtSlot(bytes)
     def set_bytes_highlighted(self, bs, lexer=None):
         self.data = bs
+        self.tabWidget.setCurrentIndex(0)
         self.hexteditor.set_bytes_highlighted(bs, lexer=lexer)
 
     def get_bytes(self):
-        if self.hext_selected:
+        if self.tabWidget.currentIndex() == self.hexteditor_ind:
             self.data = self.hexteditor.get_bytes()
-        else:
+        elif self.tabWidget.currentIndex() == self.hexeditor_ind:
             self.data = self.hexeditor.get_bytes()
         return self.data
 

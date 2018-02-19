@@ -1,7 +1,7 @@
 import threading
 import shlex
 
-from .util import max_len_str, query_to_str, display_error_box, display_info_box, display_req_context, str_color, hostport
+from .util import max_len_str, query_to_str, display_error_box, display_info_box, display_req_context, str_color, hostport, method_color, sc_color
 from .proxy import HTTPRequest, RequestContext, InvalidQuery, SocketClosed, time_to_nsecs, ProxyThread
 from .reqview import ReqViewWidget
 from .reqtree import ReqTreeView
@@ -449,7 +449,7 @@ class ReqBrowser(QWidget):
         self.listTabs.currentChanged.connect(self._tab_changed)
 
         # reqview
-        self.reqview = ReqViewWidget(info_tab=True, tag_tab=True)
+        self.reqview = ReqViewWidget(info_tab=True, param_tab=True, tag_tab=True)
         self.reqview.set_tags_read_only(False)
         self.reqview.tag_widg.tagsUpdated.connect(self._tags_updated)
         self.listWidg.req_view_widget = self.reqview
@@ -608,6 +608,7 @@ class ReqTableWidget(QWidget):
         # self.table_headers = ['id', 'verb', 'host', 'path', 's-code', 'req len', 'rsp len', 'time', 'tags', 'mngl']
         self.table.setItem(row, 0, QTableWidgetItem(req.db_id))
         self.table.setItem(row, 1, QTableWidgetItem(req.method))
+        self.table.item(row, 1).setBackground(method_color(req.method))
 
         hostval = hostport(req)
         self.table.setItem(row, 2, QTableWidgetItem(hostval))
@@ -625,6 +626,7 @@ class ReqTableWidget(QWidget):
         if req.response:
             response_code = str(req.response.status_code) + ' ' + req.response.reason
             self.table.setItem(row, 4, QTableWidgetItem(response_code))
+            self.table.item(row, 4).setBackground(sc_color(response_code))
             self.table.setItem(row, 6, QTableWidgetItem(str(req.response.content_length)))
         else:
             self.table.setItem(row, 4, QTableWidgetItem("--"))

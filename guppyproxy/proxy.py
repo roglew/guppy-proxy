@@ -235,7 +235,7 @@ class URL:
         try:
             return parse_qs(self.query, keep_blank_values=True)
         except Exception:
-            return []
+            return {}
 
     def param_iter(self):
         for k, vs in self.parameters().items():
@@ -368,7 +368,7 @@ class HTTPRequest:
         try:
             return parse_qs(self.body.decode(), keep_blank_values=True)
         except Exception:
-            return []
+            return {}
 
     def param_iter(self, ignore_content_type=False):
         if not ignore_content_type:
