@@ -4,6 +4,7 @@ import urllib
 import json
 
 from .util import display_error_box
+from .hexteditor import ComboEditor
 from PyQt5.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QComboBox, QPlainTextEdit, QPushButton
 from PyQt5.QtCore import pyqtSlot, pyqtSignal
 
@@ -67,7 +68,8 @@ class DecoderWidget(QWidget):
         QWidget.__init__(self)
         layout = QVBoxLayout()
 
-        layout.addWidget(DecoderInput())
+        self.decoder_input = DecoderInput()
+        layout.addWidget(self.decoder_input)
 
         self.setLayout(layout)
         self.layout().setContentsMargins(0, 0, 0, 0)
@@ -79,7 +81,7 @@ class DecoderInput(QWidget):
 
     decoders = {
         "encode_b64": ("Encode Base64", base64.b64encode),
-        "decode_b64": ("Decode Base64", base64.b64encode),
+        "decode_b64": ("Decode Base64", base64.b64decode),
         "encode_ah": ("Encode Asciihex", asciihex_encode_helper),
         "decode_ah": ("Decode Asciihex", asciihex_decode_helper),
         "encode_url": ("URL Encode", url_encode_helper),
@@ -94,7 +96,7 @@ class DecoderInput(QWidget):
         layout = QVBoxLayout()
         tool_layout = QHBoxLayout()
 
-        self.editor = QPlainTextEdit()
+        self.editor = ComboEditor(pretty_tab=False, enable_pretty=False)
         self.encode_entry = QComboBox()
         encode_button = QPushButton("Go!")
 
@@ -114,7 +116,7 @@ class DecoderInput(QWidget):
 
     @pyqtSlot()
     def encode(self):
-        text = self.editor.toPlainText().encode()
+        text = self.editor.get_bytes()
         encode_type = self.encode_entry.itemData(self.encode_entry.currentIndex())
         encode_func = DecoderInput.decoders[encode_type][1]
         try:
@@ -122,4 +124,4 @@ class DecoderInput(QWidget):
         except Exception as e:
             display_error_box("Error processing string:\n" + str(e))
             return
-        self.editor.setPlainText(encoded.decode())
+        self.editor.set_bytes(encoded)

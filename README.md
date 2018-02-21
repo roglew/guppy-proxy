@@ -91,6 +91,119 @@ And that's it! The filter tab has the following additional controls:
 1. Save Scope - Set your project's scope to the currently active filters (see below)
 1. Apply a built-in filter dropdown - Guppy has a list of commonly useful filters. Select one from this list to apply it
 
+### Text Filter Entry
+
+Along with the provided dropdowns you can manually type in a filter by clicking the `>` button. In some cases it may be faster to type your filter out rather than clicking on dropdowns. In addition it allows you to create filter statements that contain an `OR` and will pass a request that matches any one of the given filters. In fact, all the dropdown input does is generate these strings for you.
+
+Most filter strings have the following format:
+
+```
+<field> <comparer> <value>
+```
+
+Where `<field>` is some part of the request/response, `<comparer>` is some comparison to `<value>`. For example, if you wanted a filter that only matches requests to `target.org`, you could use the following filter string:
+
+```
+host is target.org
+
+field = "host"
+comparer = "is"
+value = "target.org"
+```
+
+For fields that are a list of key/value pairs (headers, get params, post params, and cookies) you can use the following format:
+
+```
+<field> <comparer1> <value1>[ <comparer2> <value2>]
+```
+
+This is a little more complicated. If you don't give comparer2/value2, the filter will pass any pair where the key or the value matches comparer1 and value1. If you do give comparer2/value2, the key must match comparer1/value1 and the value must match comparer2/value2 For example:
+
+```
+Filter A:
+    cookie contains Session
+
+Filter B:
+    cookie contains Session contains 456
+
+Filter C:
+    inv cookie contains Ultra
+
+Cookie: SuperSession=abc123
+Matches A and C but not B
+
+Cookie: UltraSession=abc123456
+Matches both A and B but not C
+```
+
+#### List of fields
+
+| Field Name | Aliases | Description | Format |
+|:--------|:------------|:-----|:------|
+| all | all | Anywhere in the request, response, or a websocket message | String |
+| reqbody | reqbody, reqbd, qbd, qdata, qdt | The body of the request | String |
+| rspbody | rspbody, rspbd, sbd, sdata, sdt | The body of the response | String |
+| body | body, bd, data, dt | The body in either the request or the response | String |
+| wsmessage | wsmessage, wsm | In a websocket message | String |
+| method | method, verb, vb | The request method (GET, POST, etc) | String |
+| host | host, domain, hs, dm | The host that the request was sent to | String |
+| path | path, pt | The path of the request | String |
+| url | url | The full URL of the request | String |
+| statuscode | statuscode, sc | The status code of the response (200, 404, etc) | String |
+| tag | tag | Any of the tags of the request | String |
+| reqheader | reqheader, reqhd, qhd | A header in the request | Key/Value |
+| rspheader | rspheader, rsphd, shd | A header in the response | Key/Value |
+| header | header, hd | A header in the request or the response | Key/Value |
+| param | param, pm | Either a URL or a POST parameter | Key/Value |
+| urlparam | urlparam, uparam | A URL parameter of the request | Key/Value |
+| postparam | postparam, pparam | A post parameter of the request | Key/Value |
+| rspcookie | rspcookie, rspck, sck | A cookie set by the response | Key/Value |
+| reqcookie | reqcookie, reqck, qck | A cookie submitted by the request | Key/Value |
+| cookie | cookie, ck | A cookie sent by the request or a cookie set by the response | Key/Value |
+
+#### List of comparers
+
+| Field Name | Aliases | Description |
+|:--------|:------------|:-----|
+| is | is | Exact string match | 
+| contains | contains, ct | A contain B is true if B is a substring of A |
+| containsr | containsr, ctr | A containr B is true if A matches regexp B |
+| leneq | leneq | A Leq B if A's length equals B (B must be a number) |
+| lengt | lengt | A Lgt B if A's length is greater than B (B must be a number ) |
+| lenlt | lenlt | A Llt B if A's length is less than B (B must be a number) |
+
+#### Special form filters
+
+A few filters don't conform to the field, comparer, value format. You can still negate these.
+
+| Format | Aliases | Description |
+|:--|:--|:--|
+| invert <filter string> | invert, inv | Inverts a filter string. Anything that matches the filter string will not pass the filter. |
+
+Examples:
+
+```
+Show state-changing requests
+  inv method is GET
+
+Show requests without a csrf parameter
+  inv param ct csrf
+```
+
+#### Using OR
+
+If you want to create a filter that will pass a request if it matches any of one of a few filters you can create `OR` statements. This is done by entering in each filter on the same line and separating them with an `OR` (It's case sensitive!).
+
+Examples:
+
+```
+Show requests to target.org or example.com:
+    host is target.org OR host is example.com
+
+Show requests that either are to /foobar or have foobar in the response or is a 404
+    path is /foobar OR sbd ct foobar OR sc is 404
+```
+
 ### Scope
 
 The scope of your project describes which requests should be recorded as they pass through the proxy. Guppy allows you to define a set of filters which describe which requests are in scope. For example, if your scope is just `host ctr example.com$` only requests to example.com will be recorded in history.
@@ -154,3 +267,21 @@ You can also specify settings for an upstream proxy by checking the "Use Proxy" 
 ## Data Files
 
 Your entire request history and your settings can be stored in a data file on disk. This allows you to save your work for later and even send your work to someone else. You can start a new project with a new data file by clicking the "New" button in the settings tab. Once you do this, your settings, scope, and all the messages that pass through the proxy will be saved to the specified file. You can also load an existing project by using the "Open" button. Finally, you can specify a data file by typing the path into the text box and clicking "Go!"
+
+# Keybindings
+
+Guppy has the following keybindings:
+
+| Key | Action |
+|:--------|:------------|
+| `Ctrl+J` | Navigate to request list |
+| `Ctrl+T` | Navigate to tree view |
+| `Ctrl+R` | Navigate to repeater |
+| `Ctrl+N` | Navigate to interceptor |
+| `Ctrl+D` | Navigate to decoder |
+| `Ctrl+U` | Navigate to filter text input |
+| `Ctrl+I` | Navigate to filter dropdown input |
+| `Ctrl+P` | Navigate to filters and pop most recent filter |
+| `Ctrl+Shift+D` | Navigate to decoder and fill with clipboard |
+| `Ctrl+Shift+N` | Create new datafile |
+| `Ctrl+Shift+O` | Open existing datafile |

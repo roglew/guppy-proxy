@@ -1,6 +1,6 @@
 import re
 
-from .util import datetime_string
+from .util import datetime_string, DisableUpdates
 from .proxy import HTTPRequest, get_full_url, parse_request
 from .hexteditor import ComboEditor
 from PyQt5.QtWidgets import QWidget, QTableWidget, QTableWidgetItem, QGridLayout, QHeaderView, QAbstractItemView, QLineEdit, QTabWidget, QVBoxLayout, QToolButton, QHBoxLayout, QStackedLayout
@@ -78,8 +78,7 @@ class InfoWidget(QWidget):
         self.infotable.setItem(row, 1, QTableWidgetItem(v))
 
     def set_request(self, req):
-        self.infotable.setUpdatesEnabled(False)
-        try:
+        with DisableUpdates(self.infotable):
             self.request = req
             self.infotable.setRowCount(0)
             if self.request is None:
@@ -139,8 +138,6 @@ class InfoWidget(QWidget):
             self._add_info('SSL', is_ssl)
             self._add_info('Mangled', mangle_str)
             self._add_info('Tags', ', '.join(self.request.tags))
-        finally:
-            self.infotable.setUpdatesEnabled(True)
 
 
 class ParamWidget(QWidget):
@@ -188,10 +185,7 @@ class ParamWidget(QWidget):
         self.cookietable.setRowCount(0)
 
     def set_request(self, req):
-        self.urltable.setUpdatesEnabled(False)
-        self.posttable.setUpdatesEnabled(False)
-        self.cookietable.setUpdatesEnabled(False)
-        try:
+        with DisableUpdates(self.urltable, self.posttable, self.cookietable):
             self.clear_tables()
             if req is None:
                 return
@@ -210,10 +204,6 @@ class ParamWidget(QWidget):
             if cookies:
                 for k, v in cookies:
                     self._add_info(self.cookietable, k, v)
-        finally:
-            self.urltable.setUpdatesEnabled(True)
-            self.posttable.setUpdatesEnabled(True)
-            self.cookietable.setUpdatesEnabled(True)
 
 
 class TagList(QTableWidget):
@@ -237,10 +227,11 @@ class TagList(QTableWidget):
         self.redraw_table()
         self.tagsUpdated.emit(set(self.tags))
 
-    def set_tags(self, tags):
+    def set_tags(self, tags, emit=True):
         self.tags = set(tags)
         self.redraw_table()
-        self.tagsUpdated.emit(set(self.tags))
+        if emit:
+            self.tagsUpdated.emit(set(self.tags))
 
     def clear_tags(self):
         self.tags = set()
@@ -342,7 +333,7 @@ class ReqViewWidget(QWidget):
         if info_tab or tag_tab:  # or <other tab> or <other other tab>
             use_tab = True
             tab_widget = QTabWidget()
-            tab_widget.addTab(view_widg, "Messages")
+            tab_widget.addTab(view_widg, "Message")
 
         self.info_tab = False
         self.info_widg = None
@@ -405,7 +396,7 @@ class ReqViewWidget(QWidget):
             self.info_widg.set_request(req)
         if self.tag_tab:
             if req:
-                self.tag_widg.taglist.set_tags(req.tags)
+                self.tag_widg.taglist.set_tags(req.tags, emit=False)
         if self.param_tab:
             self.param_widg.set_request(req)
 

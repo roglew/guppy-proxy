@@ -10,6 +10,35 @@ from PyQt5.QtWidgets import QMessageBox, QMenu, QApplication, QFileDialog
 from PyQt5.QtGui import QColor
 
 
+str_colorcache = {}
+
+
+class DisableUpdates:
+    def __init__(self, *args):
+        self.prevs = [(obj, obj.updatesEnabled()) for obj in args]
+        self.undoredo = []
+        self.readonly = []
+        for obj, _ in self.prevs:
+            obj.setUpdatesEnabled(False)
+            if hasattr(obj, 'setReadOnly'):
+                self.undoredo.append((obj, obj.isUndoRedoEnabled()))
+                obj.setUndoRedoEnabled(False)
+            if hasattr(obj, 'setUndoRedoEnabled'):
+                self.readonly.append((obj, obj.isReadOnly()))
+                obj.setReadOnly(True)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        for obj, prev in self.prevs:
+            obj.setUpdatesEnabled(prev)
+        for obj, prev in self.undoredo:
+            obj.setUndoRedoEnabled(prev)
+        for obj, prev in self.readonly:
+            obj.setReadOnly(prev)
+
+
 def str_hash_code(s):
     h = 0
     n = len(s) - 1
@@ -76,6 +105,10 @@ def display_info_box(msg, title="Message"):
 
 def copy_to_clipboard(s):
     QApplication.clipboard().setText(s)
+    
+
+def paste_clipboard():
+    return QApplication.clipboard().text()
 
 
 def save_dialog(parent, default_dir=None, default_name=None):
@@ -193,7 +226,13 @@ def sc_color(sc):
 
     return QColor(255, 255, 255)
 
+def host_color(hostport):
+    return str_color(hostport, lighten=150, seed=1)
+
 def str_color(s, lighten=0, seed=0):
+    global str_colorcache
+    if s in str_colorcache:
+        return str_colorcache[s]
     hashval = str_hash_code(s)+seed
     gen = random.Random()
     gen.seed(hashval)
@@ -201,8 +240,9 @@ def str_color(s, lighten=0, seed=0):
     g = gen.randint(lighten, 255)
     b = gen.randint(lighten, 255)
 
-    return QColor(r, g, b)
-
+    col = QColor(r, g, b)
+    str_colorcache[s] = col
+    return col
 
 def hostport(req):
     # returns host:port if to a port besides 80 or 443

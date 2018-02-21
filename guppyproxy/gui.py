@@ -1,11 +1,12 @@
 import random
 
-from .reqlist import ReqBrowser
+from .reqlist import ReqBrowser, ReqListModel
 from .repeater import RepeaterWidget
 from .interceptor import InterceptorWidget
 from .decoder import DecoderWidget
 from .settings import SettingsWidget
-from PyQt5.QtWidgets import QWidget, QTabWidget, QVBoxLayout
+from .shortcuts import GuppyShortcuts
+from PyQt5.QtWidgets import QWidget, QTabWidget, QVBoxLayout, QTableView
 from PyQt5.QtCore import Qt
 
 
@@ -30,25 +31,44 @@ class GuppyWindow(QWidget):
 
     def initUi(self):
         self.setFocusPolicy(Qt.StrongFocus)
-        tabWidget = QTabWidget()
-        repeaterWidget = RepeaterWidget(self.client)
+        self.shortcuts = GuppyShortcuts(self)
+        self.tabWidget = QTabWidget()
+        self.repeaterWidget = RepeaterWidget(self.client)
         self.interceptorWidget = InterceptorWidget(self.client)
-        historyWidget = ReqBrowser(self.client, repeater_widget=repeaterWidget)
-        decoderWidget = DecoderWidget()
-        settingsWidget = SettingsWidget(self.client)
-        settingsWidget.datafileLoaded.connect(historyWidget.reset_to_scope)
+        self.historyWidget = ReqBrowser(self.client,
+                                        repeater_widget=self.repeaterWidget)
+        self.decoderWidget = DecoderWidget()
+        self.settingsWidget = SettingsWidget(self.client)
+        self.settingsWidget.datafileLoaded.connect(self.historyWidget.reset_to_scope)
+        
+        self.history_ind = self.tabWidget.count()
+        self.tabWidget.addTab(self.historyWidget, "History")
+        self.repeater_ind = self.tabWidget.count()
+        self.tabWidget.addTab(self.repeaterWidget, "Repeater")
+        self.interceptor_ind = self.tabWidget.count()
+        self.tabWidget.addTab(self.interceptorWidget, "Interceptor")
+        self.decoder_ind = self.tabWidget.count()
+        self.tabWidget.addTab(self.decoderWidget, "Decoder")
+        self.settings_ind = self.tabWidget.count()
+        self.tabWidget.addTab(self.settingsWidget, "Settings")
 
-        tabWidget.addTab(historyWidget, "History")
-        tabWidget.addTab(repeaterWidget, "Repeater")
-        tabWidget.addTab(self.interceptorWidget, "Interceptor")
-        tabWidget.addTab(decoderWidget, "Decoder")
-        tabWidget.addTab(settingsWidget, "Settings")
-
-        mainLayout = QVBoxLayout(self)
-        mainLayout.addWidget(tabWidget)
+        self.mainLayout = QVBoxLayout(self)
+        self.mainLayout.addWidget(self.tabWidget)
 
         self.setWindowTitle(random.choice(GuppyWindow.titles))
         self.show()
+        
+    def show_hist_tab(self):
+        self.tabWidget.setCurrentIndex(self.history_ind)
+
+    def show_repeater_tab(self):
+        self.tabWidget.setCurrentIndex(self.repeater_ind)
+        
+    def show_interceptor_tab(self):
+        self.tabWidget.setCurrentIndex(self.interceptor_ind)
+
+    def show_decoder_tab(self):
+        self.tabWidget.setCurrentIndex(self.decoder_ind)
 
     def close(self):
         self.interceptorWidget.close()

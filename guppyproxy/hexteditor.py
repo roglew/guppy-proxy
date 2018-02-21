@@ -1,9 +1,10 @@
 import base64
-from .util import printable_data, qtprintable, textedit_highlight
+from .util import printable_data, qtprintable, textedit_highlight, DisableUpdates
 from .proxy import _parse_message, Headers
+from itertools import count
 from PyQt5.QtWidgets import QWidget, QTextEdit, QTableWidget, QVBoxLayout, QTableWidgetItem, QTabWidget, QStackedLayout, QLabel, QComboBox
-from PyQt5.QtGui import QTextCursor, QTextCharFormat, QImage, QColor
-from PyQt5.QtCore import Qt, pyqtSlot
+from PyQt5.QtGui import QTextCursor, QTextCharFormat, QImage, QColor, QTextImageFormat, QTextDocument, QTextDocumentFragment, QTextBlockFormat
+from PyQt5.QtCore import Qt, pyqtSlot, QUrl
 from pygments import highlight
 from pygments.formatters import HtmlFormatter
 from pygments.lexers import TextLexer
@@ -92,9 +93,7 @@ class PrettyPrintWidget(QWidget):
         
     def fill_json(self):
         from .decoder import pp_json
-        self.json_widg.setUndoRedoEnabled(False)
-        self.json_widg.setUpdatesEnabled(False)
-        try:
+        with DisableUpdates(self.json_widg):
             self.json_widg.setPlainText("")
             if not self.data:
                 return
@@ -104,16 +103,11 @@ class PrettyPrintWidget(QWidget):
                 return
             highlighted = textedit_highlight(j, JsonLexer())
             self.json_widg.setHtml(highlighted)
-        finally:
-            self.json_widg.setUndoRedoEnabled(True)
-            self.json_widg.setUpdatesEnabled(True)
             
     def fill_htmlxml(self):
         from lxml import etree, html
 
-        self.htmlxml_widg.setUndoRedoEnabled(False)
-        self.htmlxml_widg.setUpdatesEnabled(False)
-        try:
+        with DisableUpdates(self.htmlxml_widg):
             self.htmlxml_widg.setPlainText("")
             if not self.data:
                 return
@@ -127,21 +121,21 @@ class PrettyPrintWidget(QWidget):
                 return
             highlighted = textedit_highlight(pretty, HtmlLexer())
             self.htmlxml_widg.setHtml(highlighted)
-        finally:
-            self.htmlxml_widg.setUndoRedoEnabled(True)
-            self.htmlxml_widg.setUpdatesEnabled(True)
 
 
 
 class HextEditor(QWidget):
     byte_image = QImage()
-    byte_image.loadFromData(base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAW0lEQVQ4jb2TyQkAMAgE7cd+7Me2bM68cpIYjRBhnzOsggB9NJhplJmnEJGZUeKGTpItLCItYcEKnSRmg5DgtmtK4LrBC/xHYAURcw1cgnQDCx4FLkmFdnDqnQvXe8GAGsorMwAAAABJRU5ErkJggg=="))
+    byte_image.loadFromData(base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAQklEQVQYlYWPMQoAMAgD82jpSzL613RpqG2FBly8QwywQlJ1UENSipAilIAS2FKFziFZ8LIVOjg6ocJx/+ELD/zVnJcqe5vHUAJgAAAAAElFTkSuQmCC"))
     byte_url = "data://byte.png"
     byte_property = 0x100000 + 1
+    nonce_property = 0x100000 + 2
+    byte_nonce = count()
 
-    def __init__(self):
+    def __init__(self, enable_pretty=True):
         QWidget.__init__(self)
         layout = QVBoxLayout()
+        self.enable_pretty = enable_pretty
         self.setLayout(layout)
         self.layout().setSpacing(0)
         self.layout().setContentsMargins(0, 0, 0, 0)
@@ -154,6 +148,9 @@ class HextEditor(QWidget):
         font.setFamily("Courier New")
         font.setPointSize(10)
         doc.setDefaultFont(font)
+        doc.addResource(QTextDocument.ImageResource,
+                        QUrl(self.byte_url),
+                        HextEditor.byte_image)
         self.textedit.focusInEvent = self.focus_in_event
         self.textedit.focusOutEvent = self.focus_left_event
         self.data = b''
@@ -178,10 +175,15 @@ class HextEditor(QWidget):
         self.textedit.setReadOnly(ro)
 
     def _insert_byte(self, cursor, b):
-        f = cursor.charFormat()
+        f = QTextImageFormat()
+        f2 = QTextCursor().charFormat()
+        cursor.document().addResource(QTextDocument.ImageResource,
+                                    QUrl(self.byte_url),
+                                    HextEditor.byte_image)
+        f.setName(self.byte_url)
         f.setProperty(HextEditor.byte_property, b + 1)
-        f.setBackground(QColor('red'))
-        cursor.insertText("?", f)
+        f.setProperty(HextEditor.nonce_property, next(self.byte_nonce))
+        cursor.insertImage(f)
         cursor.setCharFormat(QTextCursor().charFormat())
 
     def clear(self):
@@ -211,22 +213,25 @@ class HextEditor(QWidget):
         cursor.endEditBlock()
 
     def set_bytes_highlighted(self, bs, lexer=None):
-        self.textedit.setUndoRedoEnabled(False)
-        self.textedit.setUpdatesEnabled(False)
-        oldro = self.textedit.isReadOnly()
-        self.textedit.setReadOnly(True)
-        self.pretty_mode = True
-        self.clear()
-        self.data = bs
-        if lexer:
-            self.lexer = lexer
-        printable = printable_data(bs)
-        highlighted = textedit_highlight(printable, self.lexer)
-        self.textedit.setHtml(highlighted)
+        if not self.enable_pretty:
+            self.set_bytes(bs)
+            return
+        with DisableUpdates(self.textedit):
+            self.textedit.setUndoRedoEnabled(False)
+            oldro = self.textedit.isReadOnly()
 
-        self.textedit.setUndoRedoEnabled(True)
-        self.textedit.setUpdatesEnabled(True)
-        self.textedit.setReadOnly(oldro)
+            self.textedit.setReadOnly(True)
+            self.pretty_mode = True
+            self.clear()
+            self.data = bs
+            if lexer:
+                self.lexer = lexer
+            printable = printable_data(bs)
+            highlighted = textedit_highlight(printable, self.lexer)
+            self.textedit.setHtml(highlighted)
+
+            self.textedit.setUndoRedoEnabled(True)
+            self.textedit.setReadOnly(oldro)
 
     def get_bytes(self):
         if not self.pretty_mode:
@@ -234,6 +239,7 @@ class HextEditor(QWidget):
         return self.data
 
     def _get_bytes(self):
+        from .util import hexdump
         bs = bytearray()
         block = self.textedit.document().firstBlock()
         newline = False
@@ -247,7 +253,11 @@ class HextEditor(QWidget):
                 fmt = f.charFormat()
                 byte = fmt.intProperty(HextEditor.byte_property)
                 if byte > 0:
-                    bs.append(byte - 1)
+                    text = f.text().encode()
+                    if text == b"\xef\xbf\xbc":
+                        bs.append(byte - 1)
+                    else:
+                        bs += text
                 else:
                     text = f.text()
                     bs += text.encode()
@@ -315,40 +325,39 @@ class HexEditor(QWidget):
         self.datatable.setItem(row, self.str_col, item)
 
     def redraw_table(self, length=None):
-        self.datatable.setUpdatesEnabled(False)
-        oldsig = self.datatable.blockSignals(True)
-        self.row_size = length or self.row_size
-        self.datatable.setColumnCount(self.row_size + 1)
-        self.datatable.setRowCount(0)
-        self.str_col = self.row_size
+        with DisableUpdates(self.datatable):
+            oldsig = self.datatable.blockSignals(True)
+            self.row_size = length or self.row_size
+            self.datatable.setColumnCount(self.row_size + 1)
+            self.datatable.setRowCount(0)
+            self.str_col = self.row_size
 
-        self.datatable.horizontalHeader().hide()
-        self.datatable.verticalHeader().hide()
+            self.datatable.horizontalHeader().hide()
+            self.datatable.verticalHeader().hide()
 
-        rows = int(len(self.data) / self.row_size)
-        if len(self.data) % self.row_size > 0:
-            rows += 1
-        self.datatable.setRowCount(rows)
+            rows = int(len(self.data) / self.row_size)
+            if len(self.data) % self.row_size > 0:
+                rows += 1
+            self.datatable.setRowCount(rows)
 
-        for i in range(rows * self.row_size):
-            row = i / self.row_size
-            col = i % self.row_size
-            if i < len(self.data):
-                dataval = "%02x" % self.data[i]
-                item = QTableWidgetItem(dataval)
-                if self.read_only:
+            for i in range(rows * self.row_size):
+                row = i / self.row_size
+                col = i % self.row_size
+                if i < len(self.data):
+                    dataval = "%02x" % self.data[i]
+                    item = QTableWidgetItem(dataval)
+                    if self.read_only:
+                        item.setFlags(item.flags() ^ Qt.ItemIsEditable)
+                else:
+                    item = QTableWidgetItem("")
                     item.setFlags(item.flags() ^ Qt.ItemIsEditable)
-            else:
-                item = QTableWidgetItem("")
-                item.setFlags(item.flags() ^ Qt.ItemIsEditable)
-            self.datatable.setItem(row, col, item)
+                self.datatable.setItem(row, col, item)
 
-        for row in range(rows):
-            self._redraw_strcol(row)
-        self.datatable.blockSignals(oldsig)
-        self.datatable.resizeColumnsToContents()
-        self.datatable.resizeRowsToContents()
-        self.datatable.setUpdatesEnabled(True)
+            for row in range(rows):
+                self._redraw_strcol(row)
+            self.datatable.blockSignals(oldsig)
+            self.datatable.resizeColumnsToContents()
+            self.datatable.resizeRowsToContents()
 
     @classmethod
     def _format_hex(cls, n):
@@ -386,16 +395,17 @@ class HexEditor(QWidget):
 
 
 class ComboEditor(QWidget):
-    def __init__(self):
+    def __init__(self, pretty_tab=True, enable_pretty=True):
         QWidget.__init__(self)
         self.setLayout(QVBoxLayout())
         self.layout().setSpacing(0)
         self.layout().setContentsMargins(0, 0, 0, 0)
 
         self.data = b''
+        self.enable_pretty = enable_pretty
 
         self.tabWidget = QTabWidget()
-        self.hexteditor = HextEditor()
+        self.hexteditor = HextEditor(enable_pretty=self.enable_pretty)
         self.hexeditor = HexEditor()
         self.ppwidg = PrettyPrintWidget()
 
@@ -403,8 +413,10 @@ class ComboEditor(QWidget):
         self.tabWidget.addTab(self.hexteditor, "Text")
         self.hexeditor_ind = self.tabWidget.count()
         self.tabWidget.addTab(self.hexeditor, "Hex")
-        self.pp_ind = self.tabWidget.count()
-        self.tabWidget.addTab(self.ppwidg, "Pretty")
+        self.pp_ind = -1
+        if pretty_tab:
+            self.pp_ind = self.tabWidget.count()
+            self.tabWidget.addTab(self.ppwidg, "Pretty")
         self.tabWidget.currentChanged.connect(self._tab_changed)
 
         self.previous_tab = self.tabWidget.currentIndex()
@@ -452,7 +464,10 @@ class ComboEditor(QWidget):
     def set_bytes_highlighted(self, bs, lexer=None):
         self.data = bs
         self.tabWidget.setCurrentIndex(0)
-        self.hexteditor.set_bytes_highlighted(bs, lexer=lexer)
+        if self.enable_pretty:
+            self.hexteditor.set_bytes_highlighted(bs, lexer=lexer)
+        else:
+            self.set_bytes(bs)
 
     def get_bytes(self):
         if self.tabWidget.currentIndex() == self.hexteditor_ind:

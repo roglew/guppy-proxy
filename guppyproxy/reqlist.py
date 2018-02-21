@@ -1,13 +1,13 @@
 import threading
 import shlex
 
-from .util import max_len_str, query_to_str, display_error_box, display_info_box, display_req_context, str_color, hostport, method_color, sc_color
+from .util import max_len_str, query_to_str, display_error_box, display_info_box, display_req_context, hostport, method_color, sc_color, DisableUpdates, host_color
 from .proxy import HTTPRequest, RequestContext, InvalidQuery, SocketClosed, time_to_nsecs, ProxyThread
 from .reqview import ReqViewWidget
 from .reqtree import ReqTreeView
-from PyQt5.QtWidgets import QWidget, QTableWidget, QTableWidgetItem, QGridLayout, QHeaderView, QAbstractItemView, QVBoxLayout, QHBoxLayout, QComboBox, QTabWidget, QPushButton, QLineEdit, QStackedLayout, QToolButton, QCheckBox, QLabel
-from PyQt5.QtCore import pyqtSlot, pyqtSignal, QObject
-from itertools import groupby
+from PyQt5.QtWidgets import QWidget, QTableWidget, QTableWidgetItem, QGridLayout, QHeaderView, QAbstractItemView, QVBoxLayout, QHBoxLayout, QComboBox, QTabWidget, QPushButton, QLineEdit, QStackedLayout, QToolButton, QCheckBox, QLabel, QTableView
+from PyQt5.QtCore import pyqtSlot, pyqtSignal, QObject, QVariant, Qt, QAbstractTableModel, QModelIndex, QItemSelection, QSortFilterProxyModel
+from itertools import groupby, count
 
 
 def get_field_entry():
@@ -76,6 +76,12 @@ class StringCmpWidget(QWidget):
     def reset(self):
         self.cmp_entry.setCurrentIndex(0)
         self.text_entry.setText("")
+
+
+def dt_sort_key(r):
+    if r.time_start:
+        return time_to_nsecs(r.time_start)
+    return 0
 
 
 class StringKVWidget(QWidget):
@@ -233,15 +239,15 @@ class FilterEntry(QWidget):
         QWidget.__init__(self, *args, **kwargs)
         self.current_entry = 0
         self.max_entries = 2
-        text_entry = TextFilterEntry()
+        self.text_entry = TextFilterEntry()
         dropdown_entry = DropdownFilterEntry()
 
-        text_entry.filterEntered.connect(self.filterEntered)
+        self.text_entry.filterEntered.connect(self.filterEntered)
         dropdown_entry.filterEntered.connect(self.filterEntered)
 
         self.entry_layout = QStackedLayout()
         self.entry_layout.addWidget(dropdown_entry)
-        self.entry_layout.addWidget(text_entry)
+        self.entry_layout.addWidget(self.text_entry)
 
         swap_button = QToolButton()
         swap_button.setText(">")
@@ -261,6 +267,11 @@ class FilterEntry(QWidget):
         self.current_entry = self.current_entry % self.max_entries
         self.entry_layout.setCurrentIndex(self.current_entry)
 
+    def set_entry(self, entry):
+        self.current_entry = entry
+        self.current_entry = self.current_entry % self.max_entries
+        self.entry_layout.setCurrentIndex(self.current_entry)
+
 
 class FilterListWidget(QTableWidget):
     # list part of the filter tab
@@ -275,8 +286,8 @@ class FilterListWidget(QTableWidget):
         self.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.verticalHeader().hide()
         self.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        self.setSelectionMode(QAbstractItemView.NoSelection)
-        self.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        #self.setSelectionMode(QAbstractItemView.NoSelection)
+        #self.setEditTriggers(QAbstractItemView.NoEditTriggers)
 
     def append_fstr(self, fstr):
         args = shlex.split(fstr)
@@ -410,8 +421,232 @@ class FilterEditor(QWidget):
         if phrase:
             self.apply_phrase([phrase])
         self.builtin_combo.setCurrentIndex(0)
+        
+    def set_is_text(self, is_text):
+        if is_text:
+            self.entry.set_entry(1)
+        else:
+            self.entry.set_entry(0)
+        
 
+class ReqListModel(QAbstractTableModel):
+    requestsLoading = pyqtSignal()
+    requestsLoaded = pyqtSignal()
+    
+    HD_ID = 0
+    HD_VERB = 1
+    HD_HOST = 2
+    HD_PATH = 3
+    HD_SCODE = 4
+    HD_REQLEN = 5
+    HD_RSPLEN = 6
+    HD_TIME = 7
+    HD_TAGS = 8
+    HD_MNGL = 9
 
+    def __init__(self, client, *args, **kwargs):
+        QAbstractTableModel.__init__(self, *args, **kwargs)
+        self.client = client
+        self.header_order = [
+            self.HD_ID,
+            self.HD_VERB,
+            self.HD_HOST,
+            self.HD_PATH,
+            self.HD_SCODE,
+            self.HD_REQLEN,
+            self.HD_RSPLEN,
+            self.HD_TIME,
+            self.HD_TAGS,
+            self.HD_MNGL,
+        ]
+        self.table_headers = {
+            self.HD_ID: "ID",
+            self.HD_VERB: "Method",
+            self.HD_HOST: "Host",
+            self.HD_PATH: "Path",
+            self.HD_SCODE: "S-Code",
+            self.HD_REQLEN: "Req Len",
+            self.HD_RSPLEN: "Rsp Len",
+            self.HD_TIME: "Time",
+            self.HD_TAGS: "Tags",
+            self.HD_MNGL: "Mngl",
+        }
+        self.reqs = []
+            
+    def headerData(self, section, orientation, role):
+        if role == Qt.DisplayRole and orientation == Qt.Horizontal:
+            hd = self.header_order[section]
+            return self.table_headers[hd]
+        return QVariant()
+            
+    def rowCount(self, parent):
+        return len(self.reqs)
+    
+    def columnCount(self, parent):
+        return len(self.header_order)
+    
+    def _gen_req_row(self, req):
+        MAX_PATH_LEN = 60
+        MAX_TAG_LEN = 40
+        reqid = self.client.get_reqid(req)
+        method = req.method
+        host = hostport(req)
+        path = max_len_str(req.url.path, MAX_PATH_LEN)
+        reqlen = str(req.content_length)
+        tags = max_len_str(', '.join(sorted(req.tags)), MAX_TAG_LEN)
+        
+        if req.response:
+            scode = str(req.response.status_code) + ' ' + req.response.reason
+            rsplen = str(req.response.content_length)
+        else:
+            scode = "--"
+            rsplen = "--"
+
+        if req.time_start and req.time_end:
+            time_delt = req.time_end - req.time_start
+            reqtime = ("%.2f" % time_delt.total_seconds())
+        else:
+            reqtime = "--"
+        if req.unmangled and req.response and req.response.unmangled:
+            manglestr = "q/s"
+        elif req.unmangled:
+            manglestr = "q"
+        elif req.response and req.response.unmangled:
+            manglestr = "s"
+        else:
+            manglestr = "N/A"
+        return (req, reqid, method, host, path, scode, reqlen, rsplen, reqtime, tags, manglestr)
+        
+    
+    def data(self, index, role):
+       MAX_PATH_LEN = 60
+       MAX_TAG_LEN = 40
+       if role == Qt.BackgroundColorRole:
+           req = self.reqs[index.row()][0]
+           element = self.header_order[index.column()]
+           if element == self.HD_HOST:
+               return host_color(hostport(req))
+           elif element == self.HD_SCODE:
+               if req.response:
+                   return sc_color(str(req.response.status_code))
+           elif element == self.HD_VERB:
+               return method_color(req.method)
+           return QVariant()
+       elif role == Qt.DisplayRole:
+           rowdata = self.reqs[index.row()]
+           return rowdata[index.column()+1]
+       return QVariant()
+
+    def _sort_reqs(self):
+        def skey(rowdata):
+            return dt_sort_key(rowdata[0])
+        if self.sort_enabled:
+            self.reqs = sorted(self.reqs, key=skey, reverse=True)
+        
+    def _req_ind(self, req=None, reqid=None):
+        if not reqid:
+            reqid = self.client.get_reqid(req)
+        for ind, rowdata in zip(count(), self.reqs):
+            req = rowdata[0]
+            if self.client.get_reqid(req) == reqid:
+                return ind
+        return -1
+    
+    def _emit_all_data(self):
+        self.dataChanged.emit(self.createIndex(0, 0), self.createIndex(len(self.header_order), len(self.reqs)))
+        
+    def _set_requests(self, reqs):
+        self.reqs = [self._gen_req_row(req) for req in reqs]
+    
+    def set_requests(self, reqs):
+        self.beginResetModel()
+        self._set_requests(reqs)
+        self._sort_reqs()
+        self._emit_all_data()
+        self.endResetModel()
+    
+    def clear(self):
+        self.beginResetModel()
+        self.reqs = []
+        self._emit_all_data()
+        self.endResetModel()
+    
+    def add_request(self, req):
+        self.beginResetModel()
+        self.reqs.append(self._gen_req_row(req))
+        self._sort_reqs()
+        self._emit_all_data()
+        self.endResetModel()
+    
+    def update_request(self, req):
+        self.beginResetModel()
+        ind = self._req_ind(req)
+        if ind < 0:
+            return
+        self.reqs[ind] = self._gen_req_row(req)
+        self._emit_all_data()
+        self.endResetModel()
+
+    def delete_request(self, req=None, reqid=None):
+        ind = self._req_ind(req, reqid)
+        if ind < 0:
+            return
+        self.reqs = req[:ind] + req[(ind+1):]
+        self._emit_all_data()
+        
+    def has_request(self, req=None, reqid=None):
+        if self._req_ind(req, reqid) < 0:
+            return False
+        return True
+    
+    def get_requests(self):
+        return [row[0] for row in self.reqs]
+    
+    def disable_sort(self):
+        self.sort_enabled = False
+
+    def enable_sort(self):
+        self.sort_enabled = True
+        self._sort_reqs()
+        
+    def req_by_ind(self, ind):
+        return self.reqs[ind][0]
+
+    
+class ReqTableFilter(QSortFilterProxyModel):
+    
+    def __init__(self, parentView, model):
+        QSortFilterProxyModel.__init__(self)
+        self.view = parentView
+        self.view.verticalScrollBar().valueChanged.connect(self.updateMaxRows)
+        self.minrows = 200
+        self.model = model
+        self.maxrows = self.minrows
+    
+    def filterAcceptsRow(self, sourceRow, sourceParent):
+        if sourceRow > self.maxrows:
+            return False
+        return True
+    
+    @pyqtSlot(int)
+    def updateMaxRows(self, val):
+        vscroll = self.view.verticalScrollBar()
+        maxmaxrows = self.model.rowCount(None)
+        if vscroll.maximum() > 0:
+            viewperc = float(val)/float(vscroll.maximum())
+        else:
+            viewperc = 0
+        if viewperc > 0.75:
+            self.maxrows += 100
+            if self.maxrows > maxmaxrows:
+                self.maxrows = maxmaxrows
+        if viewperc < 0.5:
+            self.maxrows -= 100
+            if self.maxrows < self.minrows:
+                self.maxrows = self.minrows
+        self.invalidateFilter()
+
+    
 class ReqBrowser(QWidget):
     # Widget containing request viewer, tabs to view list of reqs, filters, and (evevntually) site map
     # automatically updated with requests as they're saved
@@ -428,7 +663,7 @@ class ReqBrowser(QWidget):
         self.updater = ReqListUpdater(self.client)
 
         # reqtable/search
-        self.listWidg = ReqTableWidget(client=client, repeater_widget=repeater_widget)
+        self.listWidg = ReqTableWidget(client, repeater_widget=repeater_widget)
         self.updater.add_reqlist_widget(self.listWidg)
         self.listWidg.requestSelected.connect(self.update_viewer)
 
@@ -458,6 +693,15 @@ class ReqBrowser(QWidget):
         self.mylayout.addWidget(self.listTabs, 4, 0, 2, 1)
 
         self.setLayout(self.mylayout)
+        
+    def show_filters(self):
+        self.listTabs.setCurrentIndex(2)
+
+    def show_history(self):
+        self.listTabs.setCurrentIndex(0)
+
+    def show_tree(self):
+        self.listTabs.setCurrentIndex(1)
 
     @pyqtSlot()
     def reset_to_scope(self):
@@ -499,7 +743,10 @@ class ReqBrowser(QWidget):
             self.client.clear_tag(reqid)
             for tag in tags:
                 self.client.add_tag(reqid, tag)
-
+        
+    def set_filter_is_text(self, is_text):
+        self.filterWidg.set_is_text(is_text)
+                
 
 class ReqListUpdater(QObject):
 
@@ -518,9 +765,9 @@ class ReqListUpdater(QObject):
     def add_reqlist_widget(self, widget):
         self.mtx.acquire()
         try:
-            self.newRequest.connect(widget.add_request_item)
-            self.requestUpdated.connect(widget.update_request_item)
-            self.requestDeleted.connect(widget.delete_request_item)
+            self.newRequest.connect(widget.add_request)
+            self.requestUpdated.connect(widget.update_request)
+            self.requestDeleted.connect(widget.delete_request)
             self.reqlist_widgets.append(widget)
         finally:
             self.mtx.release()
@@ -549,169 +796,83 @@ class ReqListUpdater(QObject):
         self.conn.close()
 
 
-def dt_sort_key(r):
-    if r.time_start:
-        return time_to_nsecs(r.time_start)
-    return 0
-
-
 class ReqTableWidget(QWidget):
-
-    requestSelected = pyqtSignal(list)
     requestsChanged = pyqtSignal(list)
+    requestSelected = pyqtSignal(list)
 
-    def __init__(self, *args, **kwargs):
-        self.repeater_widget = kwargs.pop("repeater_widget", None)
-        self.client = kwargs.pop("client", None)
+    def __init__(self, client, repeater_widget=None, *args, **kwargs):
         QWidget.__init__(self, *args, **kwargs)
 
-        self.setLayout(QStackedLayout())
-        self.table = QTableWidget()
-        self.layout().addWidget(self.table)
-        self.layout().addWidget(QLabel("<b>Loading requests from data file...</b>"))
-
-        self.reqs = {}
+        self.client = client
+        self.repeater_widget = repeater_widget
         self.query = []
-        self.select_update_func = None
-        self.table.itemSelectionChanged.connect(self.on_select_change)
-        self.sort_key = dt_sort_key
-        self.sort_reverse = True
-        self.selected_req = None
-        self.req_view_widget = kwargs.pop("req_view_widget", None)
-        self.requestSelected.connect(self._updated_selected_request)
-        self.init_table()
+
+        self.setLayout(QStackedLayout())
+        self.layout().setContentsMargins(0, 0, 0, 0)
+        
+        self.tableModel = ReqListModel(self.client)
+        self.tableView = QTableView()
+        self.tableProxy = ReqTableFilter(self.tableView, self.tableModel)
+        self.tableProxy.setSourceModel(self.tableModel)
+        self.tableView.setModel(self.tableProxy)
+
+        self.tableView.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.tableView.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.tableView.verticalHeader().hide()
+        self.tableView.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.tableView.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.tableView.horizontalHeader().setStretchLastSection(True)
+        
+        self.tableView.selectionModel().selectionChanged.connect(self.on_select_change)
+        self.tableModel.dataChanged.connect(self._paint_view)
         self.requestsChanged.connect(self.set_requests)
-        self.set_filter(self.query)
-
-    def init_table(self):
-        self.table_headers = ['id', 'verb', 'host', 'path', 's-code', 'req len', 'rsp len', 'time', 'tags', 'mngl']
-        self.table.setColumnCount(len(self.table_headers))
-        self.table.setHorizontalHeaderLabels(self.table_headers)
-        self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        self.table.verticalHeader().hide()
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-
-    def _get_row_ind(self, reqid):
-        row_count = self.table.rowCount()
-        for i in range(row_count):
-            if self.table.item(i, 0).text() == reqid:
-                return i
-        return -1
-
-    def _fill_req_row(self, row, req):
-        MAX_PATH_LEN = 75
-        MAX_TAG_LEN = 75
-        # self.table_headers = ['id', 'verb', 'host', 'path', 's-code', 'req len', 'rsp len', 'time', 'tags', 'mngl']
-        self.table.setItem(row, 0, QTableWidgetItem(req.db_id))
-        self.table.setItem(row, 1, QTableWidgetItem(req.method))
-        self.table.item(row, 1).setBackground(method_color(req.method))
-
-        hostval = hostport(req)
-        self.table.setItem(row, 2, QTableWidgetItem(hostval))
-        self.table.item(row, 2).setBackground(str_color(hostval, lighten=150))
-
-        self.table.setItem(row, 3, QTableWidgetItem(max_len_str(req.url.path, MAX_PATH_LEN)))
-        self.table.setItem(row, 5, QTableWidgetItem(str(req.content_length)))
-
-        time_str = '--'
-        if req.time_start and req.time_end:
-            time_delt = req.time_end - req.time_start
-            time_str = "%.2f" % time_delt.total_seconds()
-        self.table.setItem(row, 7, QTableWidgetItem(time_str))
-
-        if req.response:
-            response_code = str(req.response.status_code) + ' ' + req.response.reason
-            self.table.setItem(row, 4, QTableWidgetItem(response_code))
-            self.table.item(row, 4).setBackground(sc_color(response_code))
-            self.table.setItem(row, 6, QTableWidgetItem(str(req.response.content_length)))
-        else:
-            self.table.setItem(row, 4, QTableWidgetItem("--"))
-            self.table.setItem(row, 6, QTableWidgetItem("--"))
-
-        tagstr = ', '.join(sorted(req.tags))
-        self.table.setItem(row, 8, QTableWidgetItem(max_len_str(tagstr, MAX_TAG_LEN)))
-
-        mangle_str = "N/A"
-        if req.unmangled and req.response and req.response.unmangled:
-            mangle_str = "q/s"
-        elif req.unmangled:
-            mangle_str = "q"
-        elif req.response and req.response.unmangled:
-            mangle_str = "s"
-        self.table.setItem(row, 9, QTableWidgetItem(mangle_str))
-
-    # TODO: add delete_response and delete_wsmessage handlers
-
-    @pyqtSlot()
-    def redraw_rows(self):
-            reqs = sorted([r for _, r in self.reqs.items()], key=self.sort_key,
-                          reverse=self.sort_reverse)
-            self.table.setRowCount(len(reqs))
-            for i in range(len(reqs)):
-                self._fill_req_row(i, reqs[i])
-
+        self.requestSelected.connect(self._updated_selected_request)
+        
+        self.layout().addWidget(self.tableView)
+        self.layout().addWidget(QLabel("<b>Loading requests from data file...</b>"))
+        
+    @pyqtSlot(HTTPRequest)
+    def add_request(self, req):
+        with DisableUpdates(self.tableView):
+            if req.db_id != "":
+                reqid = self.client.get_reqid(req)
+                if self.client.check_request(self.query, reqid=reqid):
+                    self.tableModel.add_request(req)
+                if req.unmangled and req.unmangled.db_id != "" and self.tableModel.has_request(req.unmangled):
+                    self.tableModel.delete_request(req.unmangled)
+            else:
+                if self.client.check_request(self.query, req=req):
+                    self.tableModel.add_request(req)
+                    
     @pyqtSlot()
     def clear(self):
-        self.table.setRowCount(0)
-        self.reqs = {}
-
+        self.tableModel.clear()
+        
     def get_requests(self):
-        return [v for k, v in self.reqs.items()]
+        return self.tableModel.get_requests()
 
     @pyqtSlot(list)
     def set_requests(self, reqs, check_filter=True):
-        try:
-            self.table.setUpdatesEnabled(False)
+        with DisableUpdates(self.tableView):
             self.clear()
-            if check_filter:
-                for req in reqs:
-                    self.add_request_item(req, draw=False)
-            else:
-                for req in reqs:
-                    self.add_request_row(req, draw=False)
-            self.redraw_rows()
+            self.tableModel.disable_sort()
+            for req in reqs:
+                self.add_request(req)
+            self.tableModel.enable_sort()
             self.set_loading(False)
-        finally:
-            self.table.setUpdatesEnabled(True)
 
     @pyqtSlot(HTTPRequest)
-    def add_request_item(self, req, draw=True):
-        if req.db_id != "":
-            if self.client.check_request(self.query, reqid=req.db_id):
-                self.add_request_row(req, draw=draw)
-            if req.unmangled and req.unmangled.db_id != "" and req.unmangled.db_id in self.reqs:
-                self.delete_request_item(req.unmangled.db_id)
-        else:
-            if self.client.check_request(self.query, req=req):
-                self.add_request_row(req, draw=draw)
+    def update_request(self, req):
+        with DisableUpdates(self.tableView):
+            self.tableModel.update_request(req)
+            if req.db_id != "":
+                if req.unmangled and req.unmangled.db_id != "" and req.unmangled.db_id in self.reqs:
+                    self.tableModel.delete_request(reqid=self.client.get_reqid(req.unmangled))
 
-    def add_request_row(self, req, draw=True):
-        self.reqs[req.db_id] = req
-        if draw:
-            self.table.insertRow(0)
-            self._fill_req_row(0, req)
-
-    @pyqtSlot(HTTPRequest)
-    def update_request_item(self, req):
-        if req.db_id == "":
-            return
-        if req.db_id not in self.reqs:
-            return
-        self.reqs[req.db_id] = req
-        row = self._get_row_ind(req.db_id)
-        self._fill_req_row(row, req)
-        if req.db_id != "":
-            if req.unmangled and req.unmangled.db_id != "" and req.unmangled.db_id in self.reqs:
-                self.delete_request_item(req.unmangled.db_id)
-
-    @pyqtSlot()
-    def delete_request_item(self, db_id):
-        del self.reqs[db_id]
-        self.redraw_rows()
+    @pyqtSlot(str)
+    def delete_request(self, reqid):
+        with DisableUpdates(self.tableView):
+            self.tableModel.delete_request(reqid=reqid)
 
     @pyqtSlot(list)
     def set_filter(self, query):
@@ -726,17 +887,19 @@ class ReqTableWidget(QWidget):
         else:
             self.selected_req = None
 
-    def on_select_change(self):
-        rows = self.table.selectionModel().selectedRows()
+    @pyqtSlot(QItemSelection, QItemSelection)
+    def on_select_change(self, newSelection, oldSelection):
         reqs = []
-        for idx in rows:
-            reqid = self.table.item(idx.row(), 0).text()
-            reqs.append(self.reqs[reqid])
+        added = set()
+        for idx in newSelection.indexes():
+            if idx.row() not in added:
+                reqs.append(self.tableModel.req_by_ind(idx.row()))
+                added.add(idx.row())
         self.requestSelected.emit(reqs)
-
+        
     def get_selected_request(self):
-        req = self.client.req_by_id(self.selected_req.db_id)
-        return req
+        # load the full request
+        return self.client.req_by_id(self.client.get_reqid(self.selected_req))
 
     def contextMenuEvent(self, event):
         req = self.get_selected_request()
@@ -747,3 +910,8 @@ class ReqTableWidget(QWidget):
             self.layout().setCurrentIndex(1)
         else:
             self.layout().setCurrentIndex(0)
+            
+    @pyqtSlot(QModelIndex, QModelIndex)
+    def _paint_view(self, indA, indB):
+        self.tableView.repaint()
+
