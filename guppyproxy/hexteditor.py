@@ -7,7 +7,7 @@ from PyQt5.QtGui import QTextCursor, QTextCharFormat, QImage, QColor, QTextImage
 from PyQt5.QtCore import Qt, pyqtSlot, QUrl
 from pygments import highlight
 from pygments.formatters import HtmlFormatter
-from pygments.lexers import TextLexer
+from pygments.lexers import get_lexer_for_mimetype, TextLexer
 from pygments.lexers.data import JsonLexer
 from pygments.lexers.html import HtmlLexer
 from pygments.styles import get_style_by_name
@@ -15,8 +15,9 @@ from pygments.styles import get_style_by_name
 
 class PrettyPrintWidget(QWidget):
     VIEW_NONE = 0
-    VIEW_JSON = 1
-    VIEW_HTMLXML = 2
+    VIEW_HIGHLIGHTED = 1
+    VIEW_JSON = 2
+    VIEW_HTMLXML = 3
     def __init__(self, *args, **kwargs):
         QWidget.__init__(self, *args, **kwargs)
         self.headers = Headers()
@@ -29,6 +30,9 @@ class PrettyPrintWidget(QWidget):
         self.stack.setContentsMargins(0, 0, 0, 0)
         self.nopp_widg = QLabel("No pretty version available")
         self.stack.addWidget(self.nopp_widg)
+        self.highlighted_widg = QTextEdit()
+        self.highlighted_widg.setReadOnly(True)
+        self.stack.addWidget(self.highlighted_widg)
         self.json_widg = QTextEdit()
         self.json_widg.setReadOnly(True)
         self.stack.addWidget(self.json_widg)
@@ -38,6 +42,7 @@ class PrettyPrintWidget(QWidget):
 
         self.selector = QComboBox()
         self.selector.addItem("Manually Select Printer", self.VIEW_NONE)
+        self.selector.addItem("Highlighted", self.VIEW_HIGHLIGHTED)
         self.selector.addItem("JSON", self.VIEW_JSON)
         self.selector.addItem("HTML/XML", self.VIEW_HTMLXML)
         self.selector.currentIndexChanged.connect(self._combo_changed)
@@ -53,12 +58,16 @@ class PrettyPrintWidget(QWidget):
             elif 'html' in ct or 'xml' in ct:
                 self.set_view(self.VIEW_HTMLXML)
             else:
-                self.set_view(self.VIEW_NONE)
+                self.set_view(self.VIEW_HIGHLIGHTED)
+        else:
+            self.set_view(self.VIEW_NONE)
         
     @pyqtSlot()
     def _combo_changed(self):
         field = self.selector.itemData(self.selector.currentIndex())
+        old = self.selector.blockSignals(True)
         self.set_view(field)
+        self.selector.blockSignals(old)
 
     def set_view(self, view):
         if view == self.VIEW_NONE:
@@ -72,6 +81,10 @@ class PrettyPrintWidget(QWidget):
             self.clear_output()
             self.fill_htmlxml()
             self.stack.setCurrentIndex(self.VIEW_HTMLXML)
+        elif view == self.VIEW_HIGHLIGHTED:
+            self.clear_output()
+            self.fill_highlighted()
+            self.stack.setCurrentIndex(self.VIEW_HIGHLIGHTED)
         else:
             return
         self.selector.setCurrentIndex(view)
@@ -121,7 +134,18 @@ class PrettyPrintWidget(QWidget):
                 return
             highlighted = textedit_highlight(pretty, HtmlLexer())
             self.htmlxml_widg.setHtml(highlighted)
-
+            
+    def fill_highlighted(self):
+        with DisableUpdates(self.htmlxml_widg):
+            self.highlighted_widg.setPlainText("")
+            if not self.data:
+                return
+            ct = self.headers.get('Content-Type').lower()
+            if ";" in ct:
+                ct = ct.split(";")[0]
+            lexer = get_lexer_for_mimetype(ct)
+            highlighted = textedit_highlight(self.data, lexer)
+            self.highlighted_widg.setHtml(highlighted)
 
 
 class HextEditor(QWidget):

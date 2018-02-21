@@ -1,6 +1,6 @@
 from .util import display_error_box
 from .reqview import ReqViewWidget
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit, QCheckBox, QLabel, QSizePolicy
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit, QCheckBox, QLabel, QSizePolicy, QToolButton
 from PyQt5.QtCore import pyqtSlot
 
 
@@ -9,6 +9,8 @@ class RepeaterWidget(QWidget):
     def __init__(self, client):
         QWidget.__init__(self)
         self.client = client
+        self.history = []
+        self.history_pos = 0
 
         self.setLayout(QVBoxLayout())
         self.layout().setSpacing(0)
@@ -25,6 +27,15 @@ class RepeaterWidget(QWidget):
         self.dest_port_input.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Preferred)
         self.dest_usetls_input = QCheckBox()
         
+        self.back_button = QToolButton()
+        self.back_button.setText("<")
+        self.back_button.clicked.connect(self.back)
+        self.forward_button = QToolButton()
+        self.forward_button.setText(">")
+        self.forward_button.clicked.connect(self.forward)
+
+        buttons.addWidget(self.back_button)
+        buttons.addWidget(self.forward_button)
         buttons.addWidget(submitButton)
         buttons.addWidget(QLabel("Host:"))
         buttons.addWidget(self.dest_host_input)
@@ -77,8 +88,12 @@ class RepeaterWidget(QWidget):
             usetls = True
         return (host, port, usetls)
 
-    def set_request(self, req):
+    def set_request(self, req, update_history=True):
         self._set_dest_info("", -1, False)
+        if update_history:
+            self.history.append(req)
+            self.history_pos = len(self.history)-1
+            self._update_buttons()
         if req:
             self.req = req
             self.req.tags = set(["repeater"])
@@ -107,3 +122,26 @@ class RepeaterWidget(QWidget):
         self.client.submit(req, save=True)
         self.req = req
         self.set_request(req)
+        
+    @pyqtSlot()
+    def back(self):
+        if self.history_pos > 0:
+            self.history_pos -= 1
+            self.set_request(self.history[self.history_pos], update_history=False)
+        self._update_buttons()
+
+    @pyqtSlot()
+    def forward(self):
+        if self.history_pos < len(self.history)-1:
+            self.history_pos += 1
+            self.set_request(self.history[self.history_pos], update_history=False)
+        self._update_buttons()
+            
+    def _update_buttons(self):
+        self.forward_button.setEnabled(True)
+        self.back_button.setEnabled(True)
+        if len(self.history) == 0 or self.history_pos == len(self.history)-1:
+            self.forward_button.setEnabled(False)
+        if self.history_pos == 0:
+            self.back_button.setEnabled(False)
+    

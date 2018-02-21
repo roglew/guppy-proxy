@@ -15,6 +15,10 @@ from pygments.token import Token
 class HybridHttpLexer(Lexer):
     tl = TextLexer()
     hl = HttpLexer()
+    
+    def __init__(self, max_len=50000, *args, **kwargs):
+        self.max_len = max_len
+        Lexer.__init__(self, *args, **kwargs)
 
     def get_tokens_unprocessed(self, text):
         try:
@@ -34,21 +38,24 @@ class HybridHttpLexer(Lexer):
             yield token
 
         if len(body) > 0:
-            second_parser = None
-            if "Content-Type" in h:
-                try:
-                    ct = re.search("Content-Type: (.*)", h)
-                    if ct is not None:
-                        hval = ct.groups()[0]
-                        mime = hval.split(";")[0]
-                        second_parser = get_lexer_for_mimetype(mime)
-                except ClassNotFound:
-                    pass
-            if second_parser is None:
-                yield (len(h), Token.Text, text[len(h):])
+            if len(body) <= self.max_len or self.max_len < 0:
+                second_parser = None
+                if "Content-Type" in h:
+                    try:
+                        ct = re.search("Content-Type: (.*)", h)
+                        if ct is not None:
+                            hval = ct.groups()[0]
+                            mime = hval.split(";")[0]
+                            second_parser = get_lexer_for_mimetype(mime)
+                    except ClassNotFound:
+                        pass
+                if second_parser is None:
+                    yield (len(h), Token.Text, text[len(h):])
+                else:
+                    for index, tokentype, value in second_parser.get_tokens_unprocessed(text[len(h):]):
+                        yield (index + len(h), tokentype, value)
             else:
-                for index, tokentype, value in second_parser.get_tokens_unprocessed(text[len(h):]):
-                    yield (index + len(h), tokentype, value)
+                yield (len(h), Token.Text, text[len(h):])
 
 
 class InfoWidget(QWidget):
