@@ -619,7 +619,7 @@ class ReqTableFilter(QSortFilterProxyModel):
         QSortFilterProxyModel.__init__(self)
         self.view = parentView
         self.view.verticalScrollBar().valueChanged.connect(self.updateMaxRows)
-        self.minrows = 200
+        self.minrows = 100
         self.model = model
         self.maxrows = self.minrows
     
@@ -637,7 +637,7 @@ class ReqTableFilter(QSortFilterProxyModel):
         else:
             viewperc = 0
         if viewperc > 0.75:
-            self.maxrows += 100
+            self.maxrows += 50
             if self.maxrows > maxmaxrows:
                 self.maxrows = maxmaxrows
         if viewperc < 0.5:

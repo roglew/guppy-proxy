@@ -55,6 +55,7 @@ class RepeaterWidget(QWidget):
         self.dest_host = ""
         self.dest_port = 80
         self.use_tls = False
+        self._update_buttons()
         
     def _set_host(self, host):
         self.dest_host_input.setText(host)
