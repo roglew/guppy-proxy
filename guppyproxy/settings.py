@@ -151,6 +151,8 @@ class DatafileWidget(QWidget):
         fname, ftype = QFileDialog.getSaveFileName(self, "Save File", os.getcwd(), "Database File (*.gpy)")
         if not fname:
             return
+        if len(fname) < 4 and fname[:-4] != ".gpy":
+            fname += ".gpy"
         self.datapath.setText(fname)
         self._load_datafile()
 

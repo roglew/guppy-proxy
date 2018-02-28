@@ -468,6 +468,9 @@ class HTTPRequest:
                 new_cookies[k] = v
         self.set_cookies(new_cookies)
 
+    def full_url(self):
+        return get_full_url(self)
+
     def copy(self):
         return HTTPRequest(
             method=self.method,
@@ -740,6 +743,8 @@ class ProxyConnection:
         newreq = decode_req(result["SubmittedRequest"], storage=storage)
         req.response = newreq.response
         req.unmangled = newreq.unmangled
+        req.time_start = newreq.time_start
+        req.time_end = newreq.time_end
         req.db_id = newreq.db_id
 
         req.storage_id = storage

@@ -6,6 +6,7 @@ from .interceptor import InterceptorWidget
 from .decoder import DecoderWidget
 from .settings import SettingsWidget
 from .shortcuts import GuppyShortcuts
+from .macros import MacroWidget
 from PyQt5.QtWidgets import QWidget, QTabWidget, QVBoxLayout, QTableView
 from PyQt5.QtCore import Qt
 
@@ -35,10 +36,14 @@ class GuppyWindow(QWidget):
         self.tabWidget = QTabWidget()
         self.repeaterWidget = RepeaterWidget(self.client)
         self.interceptorWidget = InterceptorWidget(self.client)
+        self.macroWidget = MacroWidget(self.client)
         self.historyWidget = ReqBrowser(self.client,
-                                        repeater_widget=self.repeaterWidget)
+                                        repeater_widget=self.repeaterWidget,
+                                        macro_widget=self.macroWidget,
+                                        update=True)
         self.decoderWidget = DecoderWidget()
         self.settingsWidget = SettingsWidget(self.client)
+
         self.settingsWidget.datafileLoaded.connect(self.historyWidget.reset_to_scope)
         
         self.history_ind = self.tabWidget.count()
@@ -49,6 +54,8 @@ class GuppyWindow(QWidget):
         self.tabWidget.addTab(self.interceptorWidget, "Interceptor")
         self.decoder_ind = self.tabWidget.count()
         self.tabWidget.addTab(self.decoderWidget, "Decoder")
+        self.macro_ind = self.tabWidget.count()
+        self.tabWidget.addTab(self.macroWidget, "Macros")
         self.settings_ind = self.tabWidget.count()
         self.tabWidget.addTab(self.settingsWidget, "Settings")
 

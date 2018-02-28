@@ -126,14 +126,19 @@ def save_dialog(parent, default_dir=None, default_name=None):
     return saveloc
 
 
-def display_req_context(parent, req, event, repeater_widget=None, req_view_widget=None):
+def display_req_context(parent, client, req, event, repeater_widget=None, req_view_widget=None, macro_widget=None, save_option=False):
     menu = QMenu(parent)
     repeaterAction = None
     displayUnmangledReq = None
     displayUnmangledRsp = None
     viewInBrowser = None
+    macroAction = None
+    saveToHistAction = None
 
-    if repeater_widget:
+    if save_option:
+        saveToHistAction = menu.addAction("Save request to history")
+
+    if repeater_widget is not None:
         repeaterAction = menu.addAction("Send to repeater")
 
     if req.unmangled and req_view_widget:
@@ -149,7 +154,12 @@ def display_req_context(parent, req, event, repeater_widget=None, req_view_widge
     saveFullActionReq = menu.addAction("Save request to file (full message)")
     saveFullActionRsp = menu.addAction("Save response to file (full message)")
 
+    if macro_widget is not None:
+        macroAction = menu.addAction("Add to active macro input")
+
     action = menu.exec_(parent.mapToGlobal(event.pos()))
+    if save_option and action == saveToHistAction:
+        client.save_new(req)
     if repeaterAction and action == repeaterAction:
         repeater_widget.set_request(req)
     if displayUnmangledReq and action == displayUnmangledReq:
@@ -197,6 +207,8 @@ def display_req_context(parent, req, event, repeater_widget=None, req_view_widge
             return
         with open(saveloc, 'wb') as f:
             f.write(req.full_message())
+    if macroAction and action == macroAction:
+        macro_widget.add_requests([req])
 
 
 def method_color(method):

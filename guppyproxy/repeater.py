@@ -108,8 +108,12 @@ class RepeaterWidget(QWidget):
 
     @pyqtSlot()
     def submit(self):
-        req = self.reqview.get_request()
-        if not req:
+        try:
+            req = self.reqview.get_request()
+            if not req:
+                display_error_box("Could not parse request")
+                return
+        except:
             display_error_box("Could not parse request")
             return
         req.tags.add("repeater")

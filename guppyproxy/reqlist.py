@@ -5,7 +5,7 @@ from .util import max_len_str, query_to_str, display_error_box, display_info_box
 from .proxy import HTTPRequest, RequestContext, InvalidQuery, SocketClosed, time_to_nsecs, ProxyThread
 from .reqview import ReqViewWidget
 from .reqtree import ReqTreeView
-from PyQt5.QtWidgets import QWidget, QTableWidget, QTableWidgetItem, QGridLayout, QHeaderView, QAbstractItemView, QVBoxLayout, QHBoxLayout, QComboBox, QTabWidget, QPushButton, QLineEdit, QStackedLayout, QToolButton, QCheckBox, QLabel, QTableView
+from PyQt5.QtWidgets import QWidget, QTableWidget, QTableWidgetItem, QGridLayout, QHeaderView, QAbstractItemView, QVBoxLayout, QHBoxLayout, QComboBox, QTabWidget, QPushButton, QLineEdit, QStackedLayout, QToolButton, QCheckBox, QLabel, QTableView, QMenu
 from PyQt5.QtCore import pyqtSlot, pyqtSignal, QObject, QVariant, Qt, QAbstractTableModel, QModelIndex, QItemSelection, QSortFilterProxyModel
 from itertools import groupby, count
 
@@ -472,6 +472,7 @@ class ReqListModel(QAbstractTableModel):
             self.HD_MNGL: "Mngl",
         }
         self.reqs = []
+        self.sort_enabled = False
             
     def headerData(self, section, orientation, role):
         if role == Qt.DisplayRole and orientation == Qt.Horizontal:
@@ -588,11 +589,13 @@ class ReqListModel(QAbstractTableModel):
         self.endResetModel()
 
     def delete_request(self, req=None, reqid=None):
+        self.beginResetModel()
         ind = self._req_ind(req, reqid)
         if ind < 0:
             return
-        self.reqs = req[:ind] + req[(ind+1):]
+        self.reqs = self.reqs[:ind] + self.reqs[(ind+1):]
         self._emit_all_data()
+        self.endResetModel()
         
     def has_request(self, req=None, reqid=None):
         if self._req_ind(req, reqid) < 0:
@@ -650,22 +653,27 @@ class ReqTableFilter(QSortFilterProxyModel):
 class ReqBrowser(QWidget):
     # Widget containing request viewer, tabs to view list of reqs, filters, and (evevntually) site map
     # automatically updated with requests as they're saved
-    def __init__(self, client, repeater_widget=None):
+    def __init__(self, client, repeater_widget=None, macro_widget=None, reload_reqs=True, update=False, filter_tab=True):
         QWidget.__init__(self)
         self.client = client
         self.filters = []
+        self.reload_reqs = reload_reqs
 
         self.mylayout = QGridLayout()
         self.mylayout.setSpacing(0)
         self.mylayout.setContentsMargins(0, 0, 0, 0)
 
         # reqtable updater
-        self.updater = ReqListUpdater(self.client)
+        if update:
+            self.updater = ReqListUpdater(self.client)
+        else:
+            self.updater = None
 
         # reqtable/search
-        self.listWidg = ReqTableWidget(client, repeater_widget=repeater_widget)
-        self.updater.add_reqlist_widget(self.listWidg)
-        self.listWidg.requestSelected.connect(self.update_viewer)
+        self.listWidg = ReqTableWidget(client, repeater_widget=repeater_widget, macro_widget=macro_widget)
+        if self.updater:
+            self.updater.add_reqlist_widget(self.listWidg)
+        self.listWidg.requestsSelected.connect(self.update_viewer)
 
         # Filter widget
         self.filterWidg = FilterEditor(client=self.client)
@@ -680,7 +688,8 @@ class ReqBrowser(QWidget):
         self.listTabs.addTab(self.listWidg, "List")
         self.tree_ind = self.listTabs.count()
         self.listTabs.addTab(self.treeWidg, "Tree")
-        self.listTabs.addTab(self.filterWidg, "Filters")
+        if filter_tab:
+            self.listTabs.addTab(self.filterWidg, "Filters")
         self.listTabs.currentChanged.connect(self._tab_changed)
 
         # reqview
@@ -711,8 +720,11 @@ class ReqBrowser(QWidget):
     def update_viewer(self, reqs):
         self.reqview.set_request(None)
         if len(reqs) > 0:
-            reqh = reqs[0]
-            req = self.client.req_by_id(reqh.db_id)
+            if self.reload_reqs:
+                reqh = reqs[0]
+                req = self.client.req_by_id(reqh.db_id)
+            else:
+                req = reqs[0]
             self.reqview.set_request(req)
 
     @pyqtSlot(list)
@@ -798,14 +810,17 @@ class ReqListUpdater(QObject):
 
 class ReqTableWidget(QWidget):
     requestsChanged = pyqtSignal(list)
-    requestSelected = pyqtSignal(list)
+    requestsSelected = pyqtSignal(list)
 
-    def __init__(self, client, repeater_widget=None, *args, **kwargs):
+    def __init__(self, client, repeater_widget=None, macro_widget=None, *args, **kwargs):
         QWidget.__init__(self, *args, **kwargs)
+        self.allow_save = False
 
         self.client = client
         self.repeater_widget = repeater_widget
+        self.macro_widget = macro_widget
         self.query = []
+        self.req_view_widget = None
 
         self.setLayout(QStackedLayout())
         self.layout().setContentsMargins(0, 0, 0, 0)
@@ -820,13 +835,15 @@ class ReqTableWidget(QWidget):
         self.tableView.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.tableView.verticalHeader().hide()
         self.tableView.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.tableView.setSelectionMode(QAbstractItemView.SingleSelection)
+        #self.tableView.setSelectionMode(QAbstractItemView.SingleSelection)
         self.tableView.horizontalHeader().setStretchLastSection(True)
         
         self.tableView.selectionModel().selectionChanged.connect(self.on_select_change)
         self.tableModel.dataChanged.connect(self._paint_view)
         self.requestsChanged.connect(self.set_requests)
-        self.requestSelected.connect(self._updated_selected_request)
+        self.requestsSelected.connect(self._updated_selected_request)
+        
+        self.selected_reqs = []
         
         self.layout().addWidget(self.tableView)
         self.layout().addWidget(QLabel("<b>Loading requests from data file...</b>"))
@@ -866,7 +883,7 @@ class ReqTableWidget(QWidget):
         with DisableUpdates(self.tableView):
             self.tableModel.update_request(req)
             if req.db_id != "":
-                if req.unmangled and req.unmangled.db_id != "" and req.unmangled.db_id in self.reqs:
+                if req.unmangled and req.unmangled.db_id != "":
                     self.tableModel.delete_request(reqid=self.client.get_reqid(req.unmangled))
 
     @pyqtSlot(str)
@@ -883,27 +900,51 @@ class ReqTableWidget(QWidget):
     @pyqtSlot(list)
     def _updated_selected_request(self, reqs):
         if len(reqs) > 0:
-            self.selected_req = reqs[0]
+            self.selected_reqs = reqs
         else:
-            self.selected_req = None
+            self.selected_reqs = []
 
     @pyqtSlot(QItemSelection, QItemSelection)
     def on_select_change(self, newSelection, oldSelection):
         reqs = []
         added = set()
-        for idx in newSelection.indexes():
-            if idx.row() not in added:
-                reqs.append(self.tableModel.req_by_ind(idx.row()))
-                added.add(idx.row())
-        self.requestSelected.emit(reqs)
+        for rowidx in self.tableView.selectionModel().selectedRows():
+            row = rowidx.row()
+            if row not in added:
+                reqs.append(self.tableModel.req_by_ind(row))
+                added.add(row)
+        self.requestsSelected.emit(reqs)
         
     def get_selected_request(self):
         # load the full request
-        return self.client.req_by_id(self.client.get_reqid(self.selected_req))
+        if len(self.selected_reqs) > 0:
+            return self.client.req_by_id(self.client.get_reqid(self.selected_reqs[0]))
+        else:
+            return None
+
+    def get_all_requests(self):
+        return [self.client.req_by_id(self.client.get_reqid(req)) for req in self.tableModel.get_requests()]
 
     def contextMenuEvent(self, event):
-        req = self.get_selected_request()
-        display_req_context(self, req, event, repeater_widget=self.repeater_widget, req_view_widget=self.req_view_widget)
+        if len(self.selected_reqs) > 1:
+            menu = QMenu(self)
+            macroAction = menu.addAction("Add to active macro input")
+            if self.allow_save:
+                saveAction = menu.addAction("Save requests to history")
+            action = menu.exec_(self.mapToGlobal(event.pos()))
+            if action == macroAction:
+                if self.macro_widget:
+                    self.macro_widget.add_requests(self.selected_reqs)
+            if self.allow_save and action == saveAction:
+                for req in self.selected_reqs:
+                    self.client.save_new(req)
+        elif len(self.selected_reqs) == 1:
+            req = self.get_selected_request()
+            display_req_context(self, self.client, req, event,
+                                repeater_widget=self.repeater_widget,
+                                req_view_widget=self.req_view_widget,
+                                macro_widget=self.macro_widget,
+                                save_option=self.allow_save)
 
     def set_loading(self, is_loading):
         if is_loading:
@@ -914,4 +955,9 @@ class ReqTableWidget(QWidget):
     @pyqtSlot(QModelIndex, QModelIndex)
     def _paint_view(self, indA, indB):
         self.tableView.repaint()
+        
+    @pyqtSlot()
+    def delete_selected(self):
+        for req in self.selected_reqs:
+            self.tableModel.delete_request(req=req)
 

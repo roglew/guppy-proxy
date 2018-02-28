@@ -115,6 +115,7 @@ class GuppyShortcuts(QObject):
     def nav_to_history(self):
         self.guppy_window.show_hist_tab()
         self.guppy_window.historyWidget.show_history()
+        self.guppy_window.historyWidget.reqview.show_message()
 
     @pyqtSlot()
     def nav_to_tree(self):

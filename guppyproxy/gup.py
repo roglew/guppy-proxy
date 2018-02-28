@@ -7,6 +7,7 @@ from PyQt5.QtCore import Qt
 from .gui import GuppyWindow
 from .proxy import ProxyClient, MessageError, ProxyThread
 from .util import confirm
+from .macros import MacroClient
 
 
 def load_certificates(client, path):
@@ -94,6 +95,7 @@ def main():
                 window.close()
         except MessageError as e:
             print(str(e))
+    MacroClient._ded = True # pray this kills the threads
     ProxyThread.waitall()
 
 

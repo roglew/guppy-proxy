@@ -256,6 +256,82 @@ The decoder allows you to perform common encoding/decoding actions. You use the 
 
 The text will be processed and it will appear in the same text box. Easy!
 
+# Macros
+
+Guppy includes support for loading and executing Python scripts in order to allow for more complex attacks than can be performed by hand with the repeater. It is worth noting that **this feature is not user friendly. Use it at your own risk.** No attempt is made to make this feature user-friendly, stable, or good. The main reason it exists is to make it easier to write python scripts which integrate with Guppy history and to provide some way to extend Guppy's features without a pull request. If you haven't been scared away yet, read on.
+
+There are two types of macros that you can write:
+
+* Active macros: Take requests as an input, make more requests, edit the input requests, etc, then output a new set of requests for review
+* Intercepting macros: Modify requests and responses as they pass through the proxy
+
+Most features that you want will fall into one of those categories. Both macros are created by creating a `.py` file and defining specific functions which will be run when the macro is executed. For example an active macro must define `run_macro` and an intercepting macro must define `mangle_request` and/or `mangle_response`. See their respective sections below for more details.
+
+## The API
+
+Unfortunately since this feature was pretty much just thrown together for my own use, the documentation is looking at the source. Hopefully it will become more stable once Guppy development slows down, but for now you'll have to look at the relevant classes to figure out how to do stuff on your own. The following classes are the most important when writing a macro:
+
+### MacroClient
+
+`MacroClient` is defined in `(guppyproxy/macro.py)` and is the interface that macros use to submit requests, save requests to history, and produce output. At the time of writing the class provides:
+
+```
+MacroClient.submit(req, save=False): Submits a request to the server and sets req.response to the response. req is the HTTPRequest to submit. req.dest_host, req.dest_port, and req.use_tls will be used to determine the location to submit the request to
+MacroClient.save(req): Permenantly saves an HTTPRequest to history
+MacroClient.output(s): Prints a string to the output tab in the macros interface
+MacroClient.output_req(req): Adds a request to the output request table in the macros interface
+MacroClient.new_request(method="GET", path="/", proto_major=1, proto_minor=1,
+                        headers=None, body=bytes(), dest_host="", dest_port=80,
+                        use_tls=False, tags=None): Creates a new HTTPRequest from scratch that can be submitted with the client
+```
+
+### HTTPRequest and HTTPResponse
+
+`HTTPRequest` and `HTTPResponse` are defined in `guppyproxy/proxy.py`. These classes represent HTTP messages. `HTTPRequest` contains both the contents of the message and information about its intended destination (host, port, whether to use TLS). For now you'll have to look at the source for information on what methods are provided to you for both of these classes.
+
+## Active Macros
+
+Active macros are a Python script that define a `run_macro` function that takes in two arguments. A `MacroClient` (as defined in `guppyproxy/macros.py`) and a list of requests (`HTTPRequest` and `HTTPResponse` are defined in `guppyproxy/proxy.py`). The following is an example of a macro that resubmits all of the input requests but adds a new header:
+
+```
+# addheader.py
+
+def run_macro(client, reqs):
+    for req in reqs:
+        client.output("Submitting request to %s..." % req.full_url())
+        req.headers.set("Foo", "Bar")
+        client.submit(req)
+        client.output_req(req)
+```
+
+Macros such as this can be used for things such as testing auth controls or brute forcing paths/filenames.
+
+## Intercepting Macros
+
+Intercepting macros are used to look at/modify requests as they pass through the proxy. This is done by defining `mangle_request` and/or `mangle_response`:
+
+```
+mangle_request(client, req): Takes in a client and an HTTPRequest and returns an HTTPRequest. The returned HTTPRequest will be sent to the server instead of the original.
+mangle_response(client, req, rsp): Takes in a client, HTTPRequest, and HTTResponse and returns an HTTPResponse. The returned HTTPResponse will be sent to the browser instead of the original.
+```
+
+As an example, the following macro will set the `session` cookie in the request to `bar` before submitting it to the server and then replace all instances of `cloud` with `butt` in the response:
+
+```
+# intexample.py
+
+def mangle_request(client, req):
+    req2 = req.copy()
+    req2.set_cookie("session", "bar")
+    client.submit(req2.save=True)
+    return req
+
+def mangle_response(client, req, rsp):
+    rsp.body = rsp.body.replace(b'cloud', b'butt')
+    rsp.body = rsp.body.replace(b'Cloud', b'Butt')
+    return rsp
+```
+
 # Settings
 
 ![screenshot](https://github.com/roglew/guppy-static/blob/master/ss_settings.png)

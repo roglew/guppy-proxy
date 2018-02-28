@@ -339,32 +339,32 @@ class ReqViewWidget(QWidget):
         use_tab = False
         if info_tab or tag_tab:  # or <other tab> or <other other tab>
             use_tab = True
-            tab_widget = QTabWidget()
-            tab_widget.addTab(view_widg, "Message")
+            self.tab_widget = QTabWidget()
+            self.tab_widget.addTab(view_widg, "Message")
 
         self.info_tab = False
         self.info_widg = None
         if info_tab:
             self.info_tab = True
             self.info_widg = InfoWidget()
-            tab_widget.addTab(self.info_widg, "Info")
+            self.tab_widget.addTab(self.info_widg, "Info")
 
         self.param_tab = False
         self.param_widg = None
         if param_tab:
             self.param_tab = True
             self.param_widg = ParamWidget()
-            tab_widget.addTab(self.param_widg, "Params")
+            self.tab_widget.addTab(self.param_widg, "Params")
 
         self.tag_tab = False
         self.tag_widg = None
         if tag_tab:
             self.tag_tab = True
             self.tag_widg = TagWidget()
-            tab_widget.addTab(self.tag_widg, "Tags")
+            self.tab_widget.addTab(self.tag_widg, "Tags")
 
         if use_tab:
-            self.layout().addWidget(tab_widget)
+            self.layout().addWidget(self.tab_widget)
         else:
             self.layout().addWidget(view_widg)
 
@@ -415,3 +415,6 @@ class ReqViewWidget(QWidget):
             self.req_edit.set_bytes_highlighted(self.req.full_message(), lexer=lex)
             if self.req.response is not None:
                 self.rsp_edit.set_bytes_highlighted(self.req.response.full_message(), lexer=lex)
+                
+    def show_message(self):
+        self.tab_widget.setCurrentIndex(0)
