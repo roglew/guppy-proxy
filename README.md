@@ -321,9 +321,7 @@ As an example, the following macro will set the `session` cookie in the request 
 # intexample.py
 
 def mangle_request(client, req):
-    req2 = req.copy()
-    req2.set_cookie("session", "bar")
-    client.submit(req2.save=True)
+    req.set_cookie("session", "bar")
     return req
 
 def mangle_response(client, req, rsp):
