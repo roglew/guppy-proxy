@@ -14,7 +14,7 @@ from itertools import count
 from urllib.parse import urlparse, ParseResult, parse_qs, urlencode
 from subprocess import Popen, PIPE
 from http import cookies as hcookies
-from PyQt5.QtCore import QThread
+from PyQt5.QtCore import QThread, QObject, pyqtSlot
 
 
 class MessageError(Exception):
@@ -88,15 +88,16 @@ class ProxyThread(QThread):
     tiditer = count()
 
     def __init__(self, target=None, args=tuple()):
+        global mainWidg
         QThread.__init__(self)
         self.f = target
         self.args = args
         self.tid = next(ProxyThread.tiditer)
         ProxyThread.threads[self.tid] = self
+        self.finished.connect(clean_thread(self.tid))
 
     def run(self):
         self.f(*self.args)
-        del ProxyThread.threads[self.tid]
 
     def wait(self):
         QThread.wait(self)
@@ -107,6 +108,11 @@ class ProxyThread(QThread):
         for tid, thread in ts:
             thread.wait()
 
+def clean_thread(tid):
+    @pyqtSlot()
+    def clean():
+        del ProxyThread.threads[tid]
+    return clean
 
 class Headers:
     def __init__(self, headers=None):

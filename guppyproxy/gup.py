@@ -88,7 +88,6 @@ def main():
 
             app = QApplication(sys.argv)
             window = GuppyWindow(client)
-            window.setAttribute(Qt.WA_DeleteOnClose)
             try:
                 app.exec_()
             finally:

@@ -11,7 +11,7 @@ from .util import display_error_box
 
 from collections import namedtuple
 from itertools import count
-from PyQt5.QtWidgets import QWidget, QTableWidget, QTableWidgetItem, QGridLayout, QHeaderView, QAbstractItemView, QVBoxLayout, QHBoxLayout, QComboBox, QTabWidget, QPushButton, QLineEdit, QStackedLayout, QToolButton, QCheckBox, QLabel, QTableView, QPlainTextEdit, QFileDialog, QFormLayout, QSizePolicy
+from PyQt5.QtWidgets import QWidget, QTableWidget, QTableWidgetItem, QGridLayout, QHeaderView, QAbstractItemView, QVBoxLayout, QHBoxLayout, QComboBox, QTabWidget, QPushButton, QLineEdit, QStackedLayout, QToolButton, QCheckBox, QLabel, QTableView, QPlainTextEdit, QFileDialog, QFormLayout, QSizePolicy, QDialog
 from PyQt5.QtCore import pyqtSlot, pyqtSignal, QObject, QVariant, Qt, QAbstractTableModel, QModelIndex, QItemSelection, QSortFilterProxyModel
 
 
@@ -86,13 +86,16 @@ class FileInterceptMacro(InterceptMacro, QObject):
     """
     macroError = pyqtSignal(str)
     
-    def __init__(self, client, filename=''):
+    def __init__(self, parent, client, filename):
         InterceptMacro.__init__(self)
         QObject.__init__(self)
         self.fname = filename or None # name from the file
         self.source = None
         self.client = client
+        self.parent = parent
         self.mclient = MacroClient(self.client)
+        self.cached_args = {}
+        self.used_args = {}
 
         if filename:
             self.load(filename)
@@ -133,6 +136,22 @@ class FileInterceptMacro(InterceptMacro, QObject):
         else:
             self.intercept_ws = False
 
+    def prompt_args(self):
+        if not hasattr(self.source, "get_args"):
+            self.used_args = {}
+            return True
+        try:
+            spec = self.source.get_args()
+        except Exception as e:
+            self.macroError.emit(make_err_str(self, e))
+            return False
+        args = get_macro_args(self.parent, spec, cached=self.cached_args)
+        if args is None:
+            return False
+        self.cached_args = args
+        self.used_args = args
+        return True
+
     def init(self, args):
         if hasattr(self.source, 'init'):
             try:
@@ -145,7 +164,7 @@ class FileInterceptMacro(InterceptMacro, QObject):
     def mangle_request(self, request):
         if hasattr(self.source, 'mangle_request'):
             try:
-                return self.source.mangle_request(self.mclient, request)
+                return self.source.mangle_request(self.mclient, self.used_args, request)
             except Exception as e:
                 self.macroError.emit(make_err_str(self, e))
         return request
@@ -153,7 +172,7 @@ class FileInterceptMacro(InterceptMacro, QObject):
     def mangle_response(self, request, response):
         if hasattr(self.source, 'mangle_response'):
             try:
-                return self.source.mangle_response(self.mclient, request, response)
+                return self.source.mangle_response(self.mclient, self.used_args, request, response)
             except Exception as e:
                 self.macroError.emit(make_err_str(self, e))
         return response
@@ -161,7 +180,7 @@ class FileInterceptMacro(InterceptMacro, QObject):
     def mangle_websocket(self, request, response, message):
         if hasattr(self.source, 'mangle_websocket'):
             try:
-                return self.source.mangle_websocket(self.mclient, request, response, message)
+                return self.source.mangle_websocket(self.mclient, self.used_args, request, response, message)
             except Exception as e:
                 self.macroError.emit(make_err_str(self, e))
         return message
@@ -171,10 +190,12 @@ class FileMacro(QObject):
     requestOutput = pyqtSignal(HTTPRequest)
     macroOutput = pyqtSignal(str)
 
-    def __init__(self, filename='', resultSlot=None):
+    def __init__(self, parent, filename='', resultSlot=None):
         QObject.__init__(self)
         self.fname = filename or None # filename we load from
         self.source = None
+        self.parent = parent
+        self.cached_args = {}
 
         if self.fname:
             self.load()
@@ -195,12 +216,23 @@ class FileMacro(QObject):
     def execute(self, client, reqs):
         # Execute the macro
         if self.source:
+            args = None
+            if hasattr(self.source, "get_args"):
+                try:
+                    spec = self.source.get_args()
+                except Exception as e:
+                    self.macroError.emit(make_err_str(self, e))
+                    return
+                args = get_macro_args(self.parent, spec, cached=self.cached_args)
+                if args is None:
+                    return
+                self.cached_args = args
             def perform_macro():
                 mclient = MacroClient(client)
                 mclient._macroOutput.connect(self.macroOutput)
                 mclient._requestOutput.connect(self.requestOutput)
                 try:
-                    self.source.run_macro(mclient, reqs)
+                    self.source.run_macro(mclient, args, reqs)
                 except Exception as e:
                     self.macroError.emit(make_err_str(self, e))
             ProxyThread(target=perform_macro).start()
@@ -233,12 +265,13 @@ class MacroWidget(QWidget):
 class IntMacroListModel(QAbstractTableModel):
     err_window = None
     
-    def __init__(self, client, *args, **kwargs):
+    def __init__(self, parent, client, *args, **kwargs):
         self.client = client
         QAbstractTableModel.__init__(self, *args, **kwargs)
         self.macros = []
         self.int_conns = {}
         self.conn_ids = count()
+        self.parent = parent
         self.headers = ["On", "Path"]
 
     def _emit_all_data(self):
@@ -293,7 +326,7 @@ class IntMacroListModel(QAbstractTableModel):
     
     def add_macro(self, macro_path):
         self.beginResetModel()
-        macro = FileInterceptMacro(self.client, macro_path)
+        macro = FileInterceptMacro(self.parent, self.client, macro_path)
         macro.macroError.connect(self.add_macro_exception)
         self.macros.append([False, macro, -1])
         self._emit_all_data()
@@ -323,6 +356,8 @@ class IntMacroListModel(QAbstractTableModel):
             return
         if not (macro.intercept_requests or macro.intercept_responses or macro.intercept_ws):
             display_error_box("Macro must implement mangle_request or mangle_response")
+            return
+        if not macro.prompt_args():
             return
         conn = self.client.new_conn()
         conn_id = next(self.conn_ids)
@@ -363,7 +398,7 @@ class IntMacroWidget(QWidget):
         remove_button.clicked.connect(self.remove_selected)
         
         # Set up table
-        self.macroListModel = IntMacroListModel(self.client)
+        self.macroListModel = IntMacroListModel(self, self.client)
         self.macroListView = QTableView()
         self.macroListView.setModel(self.macroListModel)
 
@@ -408,9 +443,10 @@ class ActiveMacroModel(QAbstractTableModel):
     requestOutput = pyqtSignal(HTTPRequest)
     macroOutput = pyqtSignal(str)
 
-    def __init__(self, client, *args, **kwargs):
+    def __init__(self, parent, client, *args, **kwargs):
         QAbstractTableModel.__init__(self, *args, **kwargs)
         self.client = client
+        self.parent = parent
         self.headers = ["Path"]
         self.macros = []
 
@@ -439,7 +475,7 @@ class ActiveMacroModel(QAbstractTableModel):
     def add_macro(self, path):
         self.beginResetModel()
         self._emit_all_data()
-        fileMacro = FileMacro(filename=path)
+        fileMacro = FileMacro(self.parent, filename=path)
         fileMacro.macroOutput.connect(self.macroOutput)
         fileMacro.macroError.connect(self.add_macro_exception)
         fileMacro.requestOutput.connect(self.requestOutput)
@@ -494,7 +530,7 @@ class ActiveMacroWidget(QWidget):
         listLayout.addWidget(QLabel("Macros"))
         listLayout.setContentsMargins(0, 0, 0, 0)
         listLayout.setSpacing(8)
-        self.tableModel = ActiveMacroModel(self.client)
+        self.tableModel = ActiveMacroModel(self, self.client)
         self.tableModel.macroOutput.connect(self.add_macro_output)
         self.tableView = QTableView()
         self.tableModel.requestOutput.connect(self.add_request_output)
@@ -639,4 +675,82 @@ def make_err_str(macro, e):
     estr += str(e) + '\n'
     estr += str(traceback.format_exc())
     return estr
+
+class ArgWindow(QDialog):
+    def __init__(self, parent, argspec, cached=None):
+        QDialog.__init__(self, parent)
+        winLayout = QVBoxLayout()
+        formLayout = QFormLayout()
+        self.shownargs = []
+        self.canceled = False
+        argnames = set()
+        for spec in argspec:
+            name = None
+            argtype = None
+            argval = None
+            if isinstance(spec, str):
+                name = spec
+                argtype = "str"
+            else:
+                if len(spec) > 0:
+                    name = spec[0]
+                if len(spec) > 1:
+                    argtype = spec[1]
+                if len(spec) > 2:
+                    argval = spec[2]
+                if not name:
+                    continue
+                if not argtype:
+                    continue
+
+            if name in argnames:
+                continue
+
+            widg = None
+            if argtype.lower() in ("str", "string"):
+                argtype = "str"
+                widg = QLineEdit()
+                if name in cached:
+                    widg.setText(cached[name])
+            else:
+                return
+            formLayout.addRow(QLabel(name), widg)
+            self.shownargs.append(((name, argtype, argval), widg))
+            argnames.add(name)
+        butlayout = QHBoxLayout()
+        okbut = QPushButton("Ok")
+        okbut.clicked.connect(self.accept)
+        cancelbut = QPushButton("Cancel")
+        cancelbut.clicked.connect(self.reject)
+        self.rejected.connect(self._set_canceled)
+        butlayout.addWidget(okbut)
+        butlayout.addWidget(cancelbut)
+        butlayout.addStretch()
+        winLayout.addLayout(formLayout)
+        winLayout.addLayout(butlayout)
+
+        self.setLayout(winLayout)
+
+    @pyqtSlot()
+    def _set_canceled(self):
+        self.canceled = True
+
+    def get_args(self):
+        if self.canceled:
+            return None
+        retargs = {}
+        for shownarg in self.shownargs:
+            spec, widg = shownarg
+            name, argtype, typeargs = spec
+            if argtype == "str":
+                retargs[name] = widg.text()
+        return retargs
+
+def get_macro_args(parent, argspec, cached=None):
+    if not isinstance(argspec, list):
+        return
+
+    argwin = ArgWindow(parent, argspec, cached=cached)
+    argwin.exec_()
+    return argwin.get_args()
 

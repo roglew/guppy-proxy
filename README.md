@@ -289,6 +289,23 @@ MacroClient.new_request(method="GET", path="/", proto_major=1, proto_minor=1,
 
 `HTTPRequest` and `HTTPResponse` are defined in `guppyproxy/proxy.py`. These classes represent HTTP messages. `HTTPRequest` contains both the contents of the message and information about its intended destination (host, port, whether to use TLS). For now you'll have to look at the source for information on what methods are provided to you for both of these classes.
 
+## Macro Arguments
+
+Both active and intercepting macros can optionally have Guppy prompt for a set of arguments before running. These arguments will be passed as a dict in the `args` variable when calling the relevant function. A macro can request arguments by defining a `get_args` function and returning a list of strings. For example if a macro defines the following `get_args` function:
+
+```
+def get_args():
+    return ["foo", "bar"]
+```
+
+the proxy will prompt for values for foo and bar. If the user enters "FOOARG" and "BARARG" for the values `args` will have a value of:
+
+```
+{"foo": "FOOARG", "bar": "BARARG"}
+```
+
+See below for examples on how to use arguments in macros. If `get_args` is not defined, `None` will be passed in for `args`.
+
 ## Active Macros
 
 Active macros are a Python script that define a `run_macro` function that takes in two arguments. A `MacroClient` (as defined in `guppyproxy/macros.py`) and a list of requests (`HTTPRequest` and `HTTPResponse` are defined in `guppyproxy/proxy.py`). The following is an example of a macro that resubmits all of the input requests but adds a new header:
@@ -296,10 +313,13 @@ Active macros are a Python script that define a `run_macro` function that takes 
 ```
 # addheader.py
 
-def run_macro(client, reqs):
+def get_args():
+    return ["header_key", "header_val"]
+
+def run_macro(client, args, reqs):
     for req in reqs:
         client.output("Submitting request to %s..." % req.full_url())
-        req.headers.set("Foo", "Bar")
+        req.headers.set(args["header_key"], args["header_val"])
         client.submit(req)
         client.output_req(req)
 ```
@@ -315,18 +335,20 @@ mangle_request(client, req): Takes in a client and an HTTPRequest and returns an
 mangle_response(client, req, rsp): Takes in a client, HTTPRequest, and HTTResponse and returns an HTTPResponse. The returned HTTPResponse will be sent to the browser instead of the original.
 ```
 
-As an example, the following macro will set the `session` cookie in the request to `bar` before submitting it to the server and then replace all instances of `cloud` with `butt` in the response:
+As an example, the following macro will ask for a find/replace value. When run, it will set the `session` cookie in the request to `bar` before submitting it to the server and then perform the given find and replace on the body of the response.
 
 ```
 # intexample.py
 
-def mangle_request(client, req):
+def get_args():
+    return ["find", "replace"]
+
+def mangle_request(client, args, req):
     req.set_cookie("session", "bar")
     return req
 
-def mangle_response(client, req, rsp):
-    rsp.body = rsp.body.replace(b'cloud', b'butt')
-    rsp.body = rsp.body.replace(b'Cloud', b'Butt')
+def mangle_response(client, args, req, rsp):
+    rsp.body = rsp.body.replace(args['find'].encode(), args['replace'].encode())
     return rsp
 ```
 
