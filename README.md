@@ -45,6 +45,7 @@ The same start script as before should still work
 ## History View
 
 ![screenshot](https://github.com/roglew/guppy-static/blob/master/ss_main.png)
+![screenshot](https://github.com/roglew/guppy-static/blob/master/ss_view_pretty.png)
 ![screenshot](https://github.com/roglew/guppy-static/blob/master/ss_tree.png)
 
 The first thing you see when you open Guppy is the history view. As requests pass through the proxy they are displayed in the lower half of the window. You can click a request to view the full request/response in the windows on the upper half or right click them for more options. The tabs on the upper half will let you view additional information about the selected request:
@@ -287,20 +288,121 @@ MacroClient.new_request(method="GET", path="/", proto_major=1, proto_minor=1,
 
 ### HTTPRequest and HTTPResponse
 
-`HTTPRequest` and `HTTPResponse` are defined in `guppyproxy/proxy.py`. These classes represent HTTP messages. `HTTPRequest` contains both the contents of the message and information about its intended destination (host, port, whether to use TLS). For now you'll have to look at the source for information on what methods are provided to you for both of these classes.
+`HTTPRequest` and `HTTPResponse` are defined in `guppyproxy/proxy.py`. These classes represent HTTP messages. `HTTPRequest` contains both the contents of the message and information about its intended destination (host, port, whether to use TLS). Below are a few examples on how to use these classes, however for more deails you will need to consult `proxy.py`:
+
+```python
+req = HTTPRequest()
+rsp = HTTPResponse()
+
+req2 = req.copy() # Copy a request
+rsp2 = rsp.copy() # Copy a response
+
+# Refer to the messages associated with a messages
+rsp3 = req.response # Response to a request, will be `None` if there was no response
+unm = req.unmangled # Unmangled version of a request, is `None` if none exist
+unm2 = rsp.unmangled # Unmangled version of a response, is `None` if none exist
+
+# Get the full message of an object (is a bytes())
+full_req = req.full_message()
+full_rsp = rsp.full_message()
+
+# Get timing info for a request
+tstart = req.time_start # datetime.datetime when the request was made
+tend = req.time_end # datetime.datetime when the request's response was received
+
+# Get destination info from a request
+dest_host = req.dest_host
+dest_port = req.dest_port
+use_tls = req.use_tls
+
+# Get/set the method of a request
+m = req.method # Get the method of the request
+req.method = "POST" # Set the method of the request
+
+# Get/set url info of a request
+requrl = req.full_url() # get the full URL of a request
+path = req.url.path # get the path of a request
+req.url.path = "/foo/bar/baz" # set the path of a request
+v = req.url.get_param("foo") # get the value of the "foo" URL parameter
+req.url.set_param("foo", "bar") # set the value of the "foo" URL parameter to "bar"
+req.url.add_param("foo", "bar2") # add a URL parameter allowing duplicates
+req.url.del_param("foo") # delete a url parameter
+[(k, v) for k, v in req.url.param_iter] # iterate over all the key/value pairs in the URL parameters
+frag = req.url.fragment # get the fragment of the url (the bit after the #)
+req.url.fragment = "frag" # set the url fragment of the request
+
+# Manage headers in a message
+req.headers.set("Foo", "Bar") # set a header, repalcing existing value
+hd = req.headers.get("Foo") # get the value of a header (for duplicates, returns first value)
+req.headers.add("Foo", "Bar2") # add a header without replacing an existing one
+pairs = req.headers.pairs() # returns all the key/value pairs of the headers in the message
+req.headers.delete("Foo") # delete a header
+req.headers.dict() # Returns a dict of the headers in the form of {"key1": ["val1", "val2"], "key2": ["val3", "val4"]}
+# Same for responses
+rsp.headers.set("Foo", "Bar")
+hd = rsp.headers.get("Foo")
+rsp.headers.add("Foo", "Bar2")
+pairs = rsp.headers.pairs()
+rsp.headers.delete("Foo")
+rsp.headers.dict()
+
+# Manage body of a message
+req.body = "foo=bar" # set the body of the message to a string
+req.body = b"\x01\x02\x03" # set the body to bytes
+bd = req.body # Get the value of the body (always is bytes())
+# Same for responses
+rsp.body = "foo=bar"
+rsp.body = b"\x01\x02\x03"
+bd = rsp.body
+
+# Manage POST parameters of a request
+params = req.parameters() # Returns a dict of the POST parameters in the form of {"key1": ["val1", "val2"], "key2": ["val3", "val4"]}
+[(k, v) for k, v in req.param_iter()] # Iterate through all the key/value pairs of the request parameters
+req.set_param("Foo", "Bar") # Set the "Foo" parameter to "Bar"
+req.add_param("Foo", "Bar2") # Add a POST parameter to the request allowing duplicates
+req.del_param("Foo") # Delete a parameter from the request
+# NOTE: Setting a POST parameter will not change the request method to POST
+
+# Managing the cookies of a message
+cookie = req.cookies() # Returns an http.cookies.BaseCookie representing the request's cookies
+req.set_cookie("foo", "bar") # set a cookie in the request
+req.del_cookie("foo") # delete a cookie from the request
+[(k, v) for k, v in req.cookie_iter()] # Iterate over the key/value pairs of the cookies in a request
+req.set_cookies({"cookie1": "val1", "cookie2": "val2"}) # Set the cookies in the request
+req.set_cookies(req2) # Set the requests on req to the cookies in req2
+req.add_cookies({"cookie1": "val1", "cookie2": "val2"}) # Add cookies to the request replacing existing values
+req.add_cookies(req2) # Add cookies from req2 to the request replacing existing values
+# Same for responses
+cookie = rsp.cookies()
+rsp.set_cookie("foo", "bar")
+rsp.del_cookie("foo")
+[(k, v) for k, v in rsp.cookie_iter()]
+rsp.set_cookies({"cookie1": "val1", "cookie2": "val2"})
+rsp.set_cookies(rsp2)
+rsp.add_cookies({"cookie1": "val1", "cookie2": "val2"})
+rsp.add_cookies(rsp2)
+
+# Manage tags of a request
+hastag = ("tagname" in req.tags) # check if a request has a tag
+req.tags.add("tagname") # add a tag to a request
+req.tags.remove("tagname") # remove a tag from the request
+# NOTE: req.tags is a regular set() and you can do whatever you want to it
+```
 
 ## Macro Arguments
 
+![screenshot](https://github.com/roglew/guppy-static/blob/master/ss_macro_args.png)
+
 Both active and intercepting macros can optionally have Guppy prompt for a set of arguments before running. These arguments will be passed as a dict in the `args` variable when calling the relevant function. A macro can request arguments by defining a `get_args` function and returning a list of strings. For example if a macro defines the following `get_args` function:
 
-```
+```python
 def get_args():
     return ["foo", "bar"]
 ```
 
 the proxy will prompt for values for foo and bar. If the user enters "FOOARG" and "BARARG" for the values `args` will have a value of:
 
-```
+```python
 {"foo": "FOOARG", "bar": "BARARG"}
 ```
 
@@ -308,9 +410,11 @@ See below for examples on how to use arguments in macros. If `get_args` is not d
 
 ## Active Macros
 
+![screenshot](https://github.com/roglew/guppy-static/blob/master/ss_macro_active_in.png)
+
 Active macros are a Python script that define a `run_macro` function that takes in two arguments. A `MacroClient` (as defined in `guppyproxy/macros.py`) and a list of requests (`HTTPRequest` and `HTTPResponse` are defined in `guppyproxy/proxy.py`). The following is an example of a macro that resubmits all of the input requests but adds a new header:
 
-```
+```python
 # addheader.py
 
 def get_args():
@@ -328,6 +432,8 @@ Macros such as this can be used for things such as testing auth controls or brut
 
 ## Intercepting Macros
 
+![screenshot](https://github.com/roglew/guppy-static/blob/master/ss_macro_int.png)
+
 Intercepting macros are used to look at/modify requests as they pass through the proxy. This is done by defining `mangle_request` and/or `mangle_response`:
 
 ```
@@ -337,7 +443,7 @@ mangle_response(client, req, rsp): Takes in a client, HTTPRequest, and HTTRespon
 
 As an example, the following macro will ask for a find/replace value. When run, it will set the `session` cookie in the request to `bar` before submitting it to the server and then perform the given find and replace on the body of the response.
 
-```
+```python
 # intexample.py
 
 def get_args():
