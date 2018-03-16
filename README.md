@@ -1,6 +1,6 @@
 # Guppy Proxy
 
-The Guppy Proxy is an intercepting proxy for performing web application security testing. Its features are often similar to, or straight up rippoffs from [Burp Suite](https://portswigger.net/burp/). However, Burp Suite is expensive which makes a proxy like Guppy inevitable.
+The Guppy Proxy is an intercepting proxy for performing web application security testing. Its features are often similar to, or straight up rippoffs from [Burp Suite](https://portswigger.net/burp/). However, Burp Suite has its own issues (search, licensing) which led to the creation of Guppy.
 
 ![screenshot](https://github.com/roglew/guppy-static/blob/master/ss_main.png)
 
