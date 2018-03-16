@@ -669,6 +669,8 @@ class MacroErrWindow(QWidget):
         self.msgwidg.setPlainText("")
         IntMacroListModel.err_window = None
         ActiveMacroModel.err_window = None
+        self.msg = ""
+        QWidget.closeEvent(self, event)
         
 def make_err_str(macro, e):
     estr = "Exception in macro %s:\n" % macro.fname
