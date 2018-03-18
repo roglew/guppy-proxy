@@ -45,7 +45,7 @@ The same start script as before should still work
 ## History View
 
 ![screenshot](https://github.com/roglew/guppy-static/blob/master/ss_main.png)
-![screenshot](https://github.com/roglew/guppy-static/blob/master/ss_view_pretty.png)
+![screenshot](https://github.com/roglew/guppy-static/blob/master/ss_pretty_view.png)
 ![screenshot](https://github.com/roglew/guppy-static/blob/master/ss_tree.png)
 
 The first thing you see when you open Guppy is the history view. As requests pass through the proxy they are displayed in the lower half of the window. You can click a request to view the full request/response in the windows on the upper half or right click them for more options. The tabs on the upper half will let you view additional information about the selected request:
