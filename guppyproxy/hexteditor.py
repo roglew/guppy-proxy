@@ -143,8 +143,11 @@ class PrettyPrintWidget(QWidget):
             ct = self.headers.get('Content-Type').lower()
             if ";" in ct:
                 ct = ct.split(";")[0]
-            lexer = get_lexer_for_mimetype(ct)
-            highlighted = textedit_highlight(self.data, lexer)
+            try:
+                lexer = get_lexer_for_mimetype(ct)
+                highlighted = textedit_highlight(self.data, lexer)
+            except:
+                highlighted = printable_data(self.data)
             self.highlighted_widg.setHtml(highlighted)
 
 

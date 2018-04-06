@@ -330,7 +330,7 @@ class FilterEditor(QWidget):
 
     builtin_filters = (
         ('No Images', ['inv', 'path', 'containsregexp', r'(\.png$|\.jpg$|\.jpeg$|\.gif$|\.ico$|\.bmp$|\.svg$)']),
-        ('No JavaScript/CSS', ['inv', 'path', 'containsregexp', r'(\.js$|\.css$)']),
+        ('No JavaScript/CSS/Fonts', ['inv', 'path', 'containsregexp', r'(\.js$|\.css$|\.woff$)']),
     )
 
     def __init__(self, *args, **kwargs):
@@ -627,9 +627,11 @@ class ReqTableFilter(QSortFilterProxyModel):
         self.maxrows = self.minrows
     
     def filterAcceptsRow(self, sourceRow, sourceParent):
-        if sourceRow > self.maxrows:
-            return False
+        # lets just take the performance problems for now
         return True
+        #if sourceRow > self.maxrows:
+        #    return False
+        #return True
     
     @pyqtSlot(int)
     def updateMaxRows(self, val):
@@ -958,6 +960,7 @@ class ReqTableWidget(QWidget):
         
     @pyqtSlot()
     def delete_selected(self):
-        for req in self.selected_reqs:
-            self.tableModel.delete_request(req=req)
+        with DisableUpdates(self.tableView):
+            for req in self.selected_reqs:
+                self.tableModel.delete_request(req=req)
 
