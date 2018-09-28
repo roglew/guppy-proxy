@@ -56,8 +56,6 @@ def main():
             # Try to get the binary from GOPATH
             gopath = os.environ["GOPATH"]
             binloc = os.path.join(gopath, "bin", "puppy")
-            with open(binloc): # ensure the file actually exists
-                pass
         except Exception:
             # Try to get the binary from ~/.guppy/puppy
             binloc = os.path.join(data_dir, "puppy")

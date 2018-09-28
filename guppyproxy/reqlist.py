@@ -473,6 +473,8 @@ class ReqListModel(QAbstractTableModel):
         }
         self.reqs = []
         self.sort_enabled = False
+        self.header_count = len(self.header_order)
+        self.row_count = len(self.reqs)
             
     def headerData(self, section, orientation, role):
         if role == Qt.DisplayRole and orientation == Qt.Horizontal:
@@ -481,10 +483,10 @@ class ReqListModel(QAbstractTableModel):
         return QVariant()
             
     def rowCount(self, parent):
-        return len(self.reqs)
+        return self.row_count
     
     def columnCount(self, parent):
-        return len(self.header_order)
+        return self.header_count
     
     def _gen_req_row(self, req):
         MAX_PATH_LEN = 60
@@ -520,17 +522,14 @@ class ReqListModel(QAbstractTableModel):
         
     
     def data(self, index, role):
-       MAX_PATH_LEN = 60
-       MAX_TAG_LEN = 40
        if role == Qt.BackgroundColorRole:
            req = self.reqs[index.row()][0]
-           element = self.header_order[index.column()]
-           if element == self.HD_HOST:
+           if index.column() == 2:
                return host_color(hostport(req))
-           elif element == self.HD_SCODE:
+           elif index.column() == 4:
                if req.response:
                    return sc_color(str(req.response.status_code))
-           elif element == self.HD_VERB:
+           elif index.column() == 1:
                return method_color(req.method)
            return QVariant()
        elif role == Qt.DisplayRole:
@@ -543,6 +542,7 @@ class ReqListModel(QAbstractTableModel):
             return dt_sort_key(rowdata[0])
         if self.sort_enabled:
             self.reqs = sorted(self.reqs, key=skey, reverse=True)
+            self.row_count = len(self.reqs)
         
     def _req_ind(self, req=None, reqid=None):
         if not reqid:
@@ -558,6 +558,7 @@ class ReqListModel(QAbstractTableModel):
         
     def _set_requests(self, reqs):
         self.reqs = [self._gen_req_row(req) for req in reqs]
+        self.row_count = len(self.reqs)
     
     def set_requests(self, reqs):
         self.beginResetModel()
@@ -569,12 +570,23 @@ class ReqListModel(QAbstractTableModel):
     def clear(self):
         self.beginResetModel()
         self.reqs = []
+        self.row_count = len(self.reqs)
         self._emit_all_data()
         self.endResetModel()
     
     def add_request(self, req):
         self.beginResetModel()
         self.reqs.append(self._gen_req_row(req))
+        self.row_count = len(self.reqs)
+        self._sort_reqs()
+        self._emit_all_data()
+        self.endResetModel()
+        
+    def add_requests(self, reqs):
+        self.beginResetModel()
+        for req in reqs:
+            self.reqs.append(self._gen_req_row(req))
+        self.row_count = len(self.reqs)
         self._sort_reqs()
         self._emit_all_data()
         self.endResetModel()
@@ -585,6 +597,7 @@ class ReqListModel(QAbstractTableModel):
         if ind < 0:
             return
         self.reqs[ind] = self._gen_req_row(req)
+        self.row_count = len(self.reqs)
         self._emit_all_data()
         self.endResetModel()
 
@@ -594,6 +607,7 @@ class ReqListModel(QAbstractTableModel):
         if ind < 0:
             return
         self.reqs = self.reqs[:ind] + self.reqs[(ind+1):]
+        self.row_count = len(self.reqs)
         self._emit_all_data()
         self.endResetModel()
         
@@ -627,11 +641,10 @@ class ReqTableFilter(QSortFilterProxyModel):
         self.maxrows = self.minrows
     
     def filterAcceptsRow(self, sourceRow, sourceParent):
-        # lets just take the performance problems for now
+        # ~~lets just take the performance problems for now~~ we found performance problems
+        if sourceRow > self.maxrows:
+            return False
         return True
-        #if sourceRow > self.maxrows:
-        #    return False
-        #return True
     
     @pyqtSlot(int)
     def updateMaxRows(self, val):
@@ -655,7 +668,7 @@ class ReqTableFilter(QSortFilterProxyModel):
 class ReqBrowser(QWidget):
     # Widget containing request viewer, tabs to view list of reqs, filters, and (evevntually) site map
     # automatically updated with requests as they're saved
-    def __init__(self, client, repeater_widget=None, macro_widget=None, reload_reqs=True, update=False, filter_tab=True):
+    def __init__(self, client, repeater_widget=None, macro_widget=None, reload_reqs=True, update=False, filter_tab=True, is_client_context=False):
         QWidget.__init__(self)
         self.client = client
         self.filters = []
@@ -680,6 +693,8 @@ class ReqBrowser(QWidget):
         # Filter widget
         self.filterWidg = FilterEditor(client=self.client)
         self.filterWidg.filtersEdited.connect(self.listWidg.set_filter)
+        if is_client_context:
+            self.filterWidg.filtersEdited.connect(self.set_client_context)
         self.filterWidg.reset_to_scope()
 
         # Tree widget
@@ -714,6 +729,10 @@ class ReqBrowser(QWidget):
     def show_tree(self):
         self.listTabs.setCurrentIndex(1)
 
+    @pyqtSlot(list)
+    def set_client_context(self, query):
+        self.client.context.set_query(query)
+        
     @pyqtSlot()
     def reset_to_scope(self):
         self.filterWidg.reset_to_scope()
@@ -872,11 +891,19 @@ class ReqTableWidget(QWidget):
 
     @pyqtSlot(list)
     def set_requests(self, reqs, check_filter=True):
+        to_add = []
+        for req in reqs:
+            if req.db_id != "":
+                reqid = self.client.get_reqid(req)
+                if self.client.check_request(self.query, reqid=reqid):
+                    to_add.append(req)
+            else:
+                if self.client.check_request(self.query, req=req):
+                    to_add.append(req)
         with DisableUpdates(self.tableView):
             self.clear()
             self.tableModel.disable_sort()
-            for req in reqs:
-                self.add_request(req)
+            self.tableModel.add_requests(to_add)
             self.tableModel.enable_sort()
             self.set_loading(False)
 
@@ -949,10 +976,11 @@ class ReqTableWidget(QWidget):
                                 save_option=self.allow_save)
 
     def set_loading(self, is_loading):
-        if is_loading:
-            self.layout().setCurrentIndex(1)
-        else:
-            self.layout().setCurrentIndex(0)
+        with DisableUpdates(self.tableView):
+            if is_loading:
+                self.layout().setCurrentIndex(1)
+            else:
+                self.layout().setCurrentIndex(0)
             
     @pyqtSlot(QModelIndex, QModelIndex)
     def _paint_view(self, indA, indB):

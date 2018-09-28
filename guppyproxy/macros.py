@@ -519,8 +519,14 @@ class ActiveMacroWidget(QWidget):
         self.reqlist = ReqTableWidget(self.client)
         butlayout = QHBoxLayout()
         delButton = QPushButton("Remove")
+        clearButton = QPushButton("Clear")
+        importAllButton = QPushButton("Import Currently Filtered Requests")
         delButton.clicked.connect(self.reqlist.delete_selected)
+        clearButton.clicked.connect(self.reqlist.clear)
+        importAllButton.clicked.connect(self.import_all_reqs)
         butlayout.addWidget(delButton)
+        butlayout.addWidget(clearButton)
+        butlayout.addWidget(importAllButton)
         butlayout.addStretch()
         inputLayout.addWidget(self.reqlist)
         inputLayout.addLayout(butlayout)
@@ -599,6 +605,7 @@ class ActiveMacroWidget(QWidget):
 
         self.layout().addWidget(tab_widg)
 
+    @pyqtSlot(list)
     def add_requests(self, reqs):
         # Add requests to active macro input
         for req in reqs:
@@ -649,7 +656,12 @@ class ActiveMacroWidget(QWidget):
         t = self.macro_text_out.toPlainText()
         t += s
         self.macro_text_out.setPlainText(t)
-
+        
+    @pyqtSlot()
+    def import_all_reqs(self):
+        reqs = self.client.in_context_requests(headers_only=True)
+        self.add_requests(reqs)
+        
 
 class MacroErrWindow(QWidget):
 
@@ -669,8 +681,6 @@ class MacroErrWindow(QWidget):
         self.msgwidg.setPlainText("")
         IntMacroListModel.err_window = None
         ActiveMacroModel.err_window = None
-        self.msg = ""
-        QWidget.closeEvent(self, event)
         
 def make_err_str(macro, e):
     estr = "Exception in macro %s:\n" % macro.fname

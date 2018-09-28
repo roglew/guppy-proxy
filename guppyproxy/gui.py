@@ -40,6 +40,7 @@ class GuppyWindow(QWidget):
         self.historyWidget = ReqBrowser(self.client,
                                         repeater_widget=self.repeaterWidget,
                                         macro_widget=self.macroWidget,
+                                        is_client_context=True,
                                         update=True)
         self.decoderWidget = DecoderWidget()
         self.settingsWidget = SettingsWidget(self.client)

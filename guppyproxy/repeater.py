@@ -124,9 +124,14 @@ class RepeaterWidget(QWidget):
         req.dest_host = host
         req.dest_port = port
         req.dest_usetls = usetls
-        self.client.submit(req, save=True)
-        self.req = req
-        self.set_request(req)
+        try:
+            self.client.submit(req, save=True)
+            self.req = req
+            self.set_request(req)
+        except Exception as e:
+            errmsg = "Error submitting request:\n%s" % str(e)
+            display_error_box(errmsg)
+            return
         
     @pyqtSlot()
     def back(self):
