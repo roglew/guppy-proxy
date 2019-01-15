@@ -2,17 +2,28 @@
 
 import pkgutil
 from setuptools import setup, find_packages
+try:
+    import py2app
+except ImportError:
+    pass
 
 VERSION = "0.1.0"
 
-setup(name='guppyproxy',
+setup(name='GuppyProxy',
       version=VERSION,
       description='The Guppy Intercepting Proxy',
       author='Rob Glew',
       author_email='rglew56@gmail.com',
       packages=['guppyproxy'],
+      app=['guppyproxy/gup.py'],
       include_package_data = True,
       license='MIT',
+      options={'py2app': {
+          'packages': ['lxml','pygments','PyQt5'],
+          'iconfile': 'img/shark.icns',
+          'resources': ['puppyrsc'],
+      }
+      },
       entry_points = {
           'console_scripts':['guppy = guppyproxy.gup:start'],
           },

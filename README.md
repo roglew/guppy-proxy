@@ -13,15 +13,24 @@ Make sure the following commands are available:
 * `python3`
 * `pip`
 * `virtualenv` (can be installed with pip)
-* `go` version 1.8 or higher
 
 ## Installing
 
+### Mac
+
+1. Download the .app of version of guppy [available here](https://s3-us-west-2.amazonaws.com/guppydist/GuppyProxy.zip)
+1. Start the application
+1. Add the CA cert in `~/.guppy/certs` to your browser as a CA
+1. Configure your browser to use `localhost:8080` as a proxy
+1. Navigate to a site and look at the history in the main window
+
+### Linux / Alternative for Mac
+
 1. Clone this repo somewhere it won't get deleted: `git clone https://github.com/roglew/guppy-proxy.git`
 1. `cd /path/to/guppy-proxy`
-1. `./install.sh`
-1. Test that it starts up and generate certs: `./start` (keep it open and continue to test it works)
-1. Copy/symlink the `start` script somewhere in your PATH (i.e. `~/bin` if you have that included) and rename it to `guppy` if you want
+1. `./install.sh` to use pre-built binary or `./install.sh -p` to compile the go component from source (requires a [go installation](https://golang.org/doc/install))
+1. Test that the application starts up and generate certs: `./start` (keep the window open and continue to test it works)
+1. Copy/symlink the generated `start` script somewhere in your PATH (i.e. `~/bin` if you have that included) and rename it to `guppy` if you want
 1. Add the CA cert in `~/.guppy/certs` to your browser as a CA
 1. Configure your browser to use `localhost:8080` as a proxy
 1. Navigate to a site and look at the history in the main window

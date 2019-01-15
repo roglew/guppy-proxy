@@ -1,4 +1,4 @@
-from .proxy import HTTPRequest
+from guppyproxy.proxy import HTTPRequest
 from PyQt5.QtWidgets import QWidget, QTreeView, QVBoxLayout
 from PyQt5.QtGui import QStandardItem, QStandardItemModel
 from PyQt5.QtCore import pyqtSlot, Qt

@@ -1,6 +1,6 @@
-from .util import list_remove, display_error_box
-from .proxy import MessageError
-from .config import ProxyConfig
+from guppyproxy.util import list_remove, display_error_box
+from guppyproxy.proxy import MessageError
+from guppyproxy.config import ProxyConfig
 from PyQt5.QtWidgets import QWidget, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QFormLayout, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit, QSizePolicy, QToolButton, QCheckBox, QLabel, QFileDialog
 from PyQt5.QtCore import pyqtSlot, pyqtSignal
 import os

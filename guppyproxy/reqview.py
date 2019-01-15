@@ -1,8 +1,8 @@
 import re
 
-from .util import datetime_string, DisableUpdates
-from .proxy import HTTPRequest, get_full_url, parse_request
-from .hexteditor import ComboEditor
+from guppyproxy.util import datetime_string, DisableUpdates
+from guppyproxy.proxy import HTTPRequest, get_full_url, parse_request
+from guppyproxy.hexteditor import ComboEditor
 from PyQt5.QtWidgets import QWidget, QTableWidget, QTableWidgetItem, QGridLayout, QHeaderView, QAbstractItemView, QLineEdit, QTabWidget, QVBoxLayout, QToolButton, QHBoxLayout, QStackedLayout
 from PyQt5.QtCore import pyqtSlot, pyqtSignal, Qt
 from pygments.lexer import Lexer

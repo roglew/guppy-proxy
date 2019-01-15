@@ -1,5 +1,5 @@
-from .util import display_error_box
-from .reqview import ReqViewWidget
+from guppyproxy.util import display_error_box
+from guppyproxy.reqview import ReqViewWidget
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit, QCheckBox, QLabel, QSizePolicy, QToolButton
 from PyQt5.QtCore import pyqtSlot
 

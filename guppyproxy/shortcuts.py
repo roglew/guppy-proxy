@@ -1,4 +1,4 @@
-from .util import display_info_box, paste_clipboard
+from guppyproxy.util import display_info_box, paste_clipboard
 from PyQt5.QtCore import pyqtSlot, QObject, Qt
 from PyQt5.QtWidgets import QShortcut 
 from PyQt5.QtGui import QKeySequence
@@ -16,6 +16,8 @@ class GuppyShortcuts(QObject):
     ACT_NAV_FILTER_POP = 8
     ACT_OPEN = 9
     ACT_NEW = 10
+    ACT_NAV_MACRO_ACTIVE = 11
+    ACT_NAV_MACRO_INT = 12
 
     def __init__(self, guppy_window):
         QObject.__init__(self)
@@ -76,6 +78,16 @@ class GuppyShortcuts(QObject):
                           "New datafile",
                           self.new_datafile,
                           QKeySequence(Qt.CTRL+Qt.SHIFT+Qt.Key_N))
+
+        self.add_shortcut(self.ACT_NAV_MACRO_ACTIVE,
+                          "Navigate to active macros",
+                          self.nav_to_active_macros,
+                          QKeySequence(Qt.CTRL+Qt.Key_M))
+
+        self.add_shortcut(self.ACT_NAV_MACRO_INT,
+                          "Navigate to intercepting macros",
+                          self.nav_to_int_macros,
+                          QKeySequence(Qt.CTRL+Qt.Key_N))
 
 
     def add_shortcut(self, action, desc, func, key=None):
@@ -147,3 +159,11 @@ class GuppyShortcuts(QObject):
     @pyqtSlot()
     def new_datafile(self):
         self.guppy_window.settingsWidget.datafilewidg.new_datafile()
+
+    @pyqtSlot()
+    def nav_to_active_macros(self):
+        self.guppy_window.show_active_macro_tab()
+
+    @pyqtSlot()
+    def nav_to_int_macros(self):
+        self.guppy_window.show_int_macro_tab()

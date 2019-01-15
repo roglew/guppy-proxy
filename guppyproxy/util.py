@@ -3,7 +3,7 @@ import string
 import time
 import datetime
 import random
-from .proxy import get_full_url, Headers
+from guppyproxy.proxy import get_full_url, Headers
 from pygments.formatters import HtmlFormatter
 from pygments.styles import get_style_by_name
 from PyQt5.QtWidgets import QMessageBox, QMenu, QApplication, QFileDialog

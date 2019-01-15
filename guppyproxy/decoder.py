@@ -3,10 +3,11 @@ import base64
 import urllib
 import json
 
-from .util import display_error_box
-from .hexteditor import ComboEditor
+from guppyproxy.util import display_error_box
+from guppyproxy.hexteditor import ComboEditor
 from PyQt5.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QComboBox, QPlainTextEdit, QPushButton
 from PyQt5.QtCore import pyqtSlot, pyqtSignal
+from datetime import datetime
 
 class DecodeError(Exception):
     pass
@@ -27,16 +28,13 @@ def asciihex_decode_helper(s):
 
 
 def base64_decode_helper(s):
-    try:
-        return base64.b64decode(s)
-    except TypeError:
-        for i in range(1, 5):
-            try:
-                s_padded = base64.b64decode(s + '=' * i)
-                return s_padded
-            except Exception:
-                pass
-        raise DecodeError("Unable to base64 decode string")
+    for i in range(0, 8):
+        try:
+            s_padded = base64.b64decode(s + '=' * i)
+            return s_padded
+        except Exception as e2:
+            pass
+    raise DecodeError("Unable to base64 decode string: %s" % s)
 
 
 def url_decode_helper(s):
@@ -61,6 +59,28 @@ def pp_json(s):
     d = json.loads(s.strip())
     return json.dumps(d, indent=2, sort_keys=True).encode()
 
+def decode_jwt(s):
+    # in case they paste the whole auth header or the token with "bearer"
+    s = s.strip()
+    fields = s.split(b' ')
+    s = fields[-1].strip()
+    parts = s.split(b'.')
+    ret = b''
+    for part in parts:
+        try:
+            ret += base64_decode_helper(part.decode()) + b'\n\n'
+        except:
+            ret += b"[error decoding]\n\n"
+    return ret
+
+def decode_unixtime(s):
+    ts = int(s)
+    dfmt = '%b %d, %Y %I:%M:%S %p'
+    try:
+        return datetime.utcfromtimestamp(ts).strftime(dfmt).encode()
+    except ValueError:
+        ts = ts/1000
+        return datetime.utcfromtimestamp(ts).strftime(dfmt).encode()
 
 class DecoderWidget(QWidget):
 
@@ -81,14 +101,16 @@ class DecoderInput(QWidget):
 
     decoders = {
         "encode_b64": ("Encode Base64", base64.b64encode),
-        "decode_b64": ("Decode Base64", base64.b64decode),
+        "decode_b64": ("Decode Base64", base64_decode_helper),
         "encode_ah": ("Encode Asciihex", asciihex_encode_helper),
         "decode_ah": ("Decode Asciihex", asciihex_decode_helper),
         "encode_url": ("URL Encode", url_encode_helper),
         "decode_url": ("URL Decode", url_decode_helper),
         "encode_html": ("HTML Encode", html_encode_helper),
         "decode_html": ("HTML Decode", html_decode_helper),
+        "decode_unixtime": ("Format Unix Timestamp", decode_unixtime),
         "pp_json": ("Pretty-Print JSON", pp_json),
+        "decode_jwt": ("Decode JWT Token", decode_jwt),
     }
 
     def __init__(self, *args, **kwargs):

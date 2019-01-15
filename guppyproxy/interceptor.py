@@ -1,6 +1,6 @@
-from .util import display_error_box
-from .proxy import InterceptMacro, parse_request, parse_response
-from .hexteditor import ComboEditor
+from guppyproxy.util import display_error_box
+from guppyproxy.proxy import InterceptMacro, parse_request, parse_response
+from guppyproxy.hexteditor import ComboEditor
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton
 from PyQt5.QtCore import pyqtSlot, pyqtSignal, QObject
 

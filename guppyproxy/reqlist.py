@@ -1,10 +1,10 @@
 import threading
 import shlex
 
-from .util import max_len_str, query_to_str, display_error_box, display_info_box, display_req_context, hostport, method_color, sc_color, DisableUpdates, host_color
-from .proxy import HTTPRequest, RequestContext, InvalidQuery, SocketClosed, time_to_nsecs, ProxyThread
-from .reqview import ReqViewWidget
-from .reqtree import ReqTreeView
+from guppyproxy.util import max_len_str, query_to_str, display_error_box, display_info_box, display_req_context, hostport, method_color, sc_color, DisableUpdates, host_color
+from guppyproxy.proxy import HTTPRequest, RequestContext, InvalidQuery, SocketClosed, time_to_nsecs, ProxyThread
+from guppyproxy.reqview import ReqViewWidget
+from guppyproxy.reqtree import ReqTreeView
 from PyQt5.QtWidgets import QWidget, QTableWidget, QTableWidgetItem, QGridLayout, QHeaderView, QAbstractItemView, QVBoxLayout, QHBoxLayout, QComboBox, QTabWidget, QPushButton, QLineEdit, QStackedLayout, QToolButton, QCheckBox, QLabel, QTableView, QMenu
 from PyQt5.QtCore import pyqtSlot, pyqtSignal, QObject, QVariant, Qt, QAbstractTableModel, QModelIndex, QItemSelection, QSortFilterProxyModel
 from itertools import groupby, count

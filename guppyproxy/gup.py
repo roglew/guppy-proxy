@@ -4,10 +4,10 @@ import os
 
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtCore import Qt
-from .gui import GuppyWindow
-from .proxy import ProxyClient, MessageError, ProxyThread
-from .util import confirm
-from .macros import MacroClient
+from guppyproxy.gui import GuppyWindow
+from guppyproxy.proxy import ProxyClient, MessageError, ProxyThread
+from guppyproxy.util import confirm
+from guppyproxy.macros import MacroClient
 
 
 def load_certificates(client, path):
@@ -52,16 +52,15 @@ def main():
             msg_addr = args.dbgattach[0]
     else:
         msg_addr = None
-        try:
-            # Try to get the binary from GOPATH
-            gopath = os.environ["GOPATH"]
-            binloc = os.path.join(gopath, "bin", "puppy")
-        except Exception:
-            # Try to get the binary from ~/.guppy/puppy
-            binloc = os.path.join(data_dir, "puppy")
-            if not os.path.exists(binloc):
-                print("Could not find puppy binary in GOPATH or ~/.guppy. Please ensure that it has been compiled, or pass in the binary location from the command line")
-                exit(1)
+        binloc = os.path.join(data_dir, "puppy")
+        if 'RESOURCEPATH' in os.environ:
+            rpath = os.environ['RESOURCEPATH']
+            checkloc = os.path.join(rpath, 'puppyrsc', 'puppy.osx')
+            if os.path.exists(checkloc):
+                binloc = checkloc
+        if not os.path.exists(binloc):
+            print("Could not find puppy binary. Please ensure that it has been compiled and placed in ~/.guppy/, or pass in the binary location from the command line")
+            exit(1)
 
     cert_dir = os.path.join(data_dir, "certs")
 
@@ -69,15 +68,10 @@ def main():
         try:
             load_certificates(client, cert_dir)
         except MessageError as e:
-            print(str(e))
-            if(confirm("Would you like to generate the certificates now?", "y")):
-                generate_certificates(client, cert_dir)
-                print("Certificates generated to {}".format(cert_dir))
-                print("Be sure to add {} to your trusted CAs in your browser!".format(os.path.join(cert_dir, "server.pem")))
-                load_certificates(client, cert_dir)
-            else:
-                print("Can not run proxy without SSL certificates")
-                exit(1)
+            generate_certificates(client, cert_dir)
+            print("Certificates generated to {}".format(cert_dir))
+            print("Be sure to add {} to your trusted CAs in your browser!".format(os.path.join(cert_dir, "server.pem")))
+            load_certificates(client, cert_dir)
         try:
             # Only try and listen/set default storage if we're not attaching
             if args.attach is None:

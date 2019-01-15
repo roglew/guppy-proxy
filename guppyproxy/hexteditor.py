@@ -1,6 +1,6 @@
 import base64
-from .util import printable_data, qtprintable, textedit_highlight, DisableUpdates
-from .proxy import _parse_message, Headers
+from guppyproxy.util import printable_data, qtprintable, textedit_highlight, DisableUpdates
+from guppyproxy.proxy import _parse_message, Headers
 from itertools import count
 from PyQt5.QtWidgets import QWidget, QTextEdit, QTableWidget, QVBoxLayout, QTableWidgetItem, QTabWidget, QStackedLayout, QLabel, QComboBox
 from PyQt5.QtGui import QTextCursor, QTextCharFormat, QImage, QColor, QTextImageFormat, QTextDocument, QTextDocumentFragment, QTextBlockFormat

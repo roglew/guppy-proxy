@@ -25,7 +25,7 @@ TMPGOPATH="$INSTALLDIR/gopath"
 DATADIR="$HOME/.guppy"
 VIRTUALENVNAME="guppyenv"
 
-while getopts "g:f:r:dh" opt; do
+while getopts "g:f:r:dph" opt; do
     case $opt in
         g)
             GO="$OPTARG"
@@ -40,8 +40,12 @@ while getopts "g:f:r:dh" opt; do
         d)
             DEV="yes"
             ;;
+        p)
+            DOPUPPY="yes"
+            ;;
         h)
             echo -e "Build script flags:"
+            echo -e "-p\tCompile puppy from source rather than using pre-built binaries"
             echo -e "-g [path to go]\tUse specific go binary to compile puppy"
             echo -e "-f [arguments]\tArguments to pass to \"go build\". ie -f \"-ldflags -s\""
             echo -e "-r [git repository link]\t download puppy from an alternate repository"
@@ -65,7 +69,7 @@ fi
 
 if ! type "pip" > /dev/null; then
     if ! type "easy_install" > /dev/null; then
-        echo "easy_install not available. Please install easy_install then try again."
+        echo "pip not available. Please install pip then try again."
         exit 1;
     fi
 
@@ -78,43 +82,72 @@ if ! type "pip" > /dev/null; then
 fi
 
 cd "$INSTALLDIR"
+mkdir -p $DATADIR
 
-# Set up fake gopath
-if [ -z "$GOPATH" ]; then
-    echo "No GOPATH detected, creating temporary GOPATH at $TMPGOPATH";
+if [ $DOPUPPY ]; then
+    # Compile puppy from source
+
+    if [ ! $GO ]; then
+        if ! type "go" > /dev/null; then
+            echo "go not installed. Please install go and try again"
+            exit 1;
+        fi
+    fi
+
+    # Set up fake gopath
     export GOPATH="$TMPGOPATH";
-fi
-require mkdir -p "$GOPATH/src"
+    require mkdir -p "$GOPATH/src"
 
-# Clone the repo
-REPODIR="$GOPATH/src/puppy";
-if [ ! -d "$REPODIR" ]; then
-    # Clone the repo if it doesn't exist
-    require mkdir -p "$REPODIR";
-    echo git clone "$PUPPYREPO" "$REPODIR";
-    require git clone "$PUPPYREPO" "$REPODIR";
-fi
-
-# Check out the correct version
-cd "$REPODIR";
-if [ $DEV ] || [ $REPODIR ]; then
-    # If it's development, get the most recent version of puppy
-    require git pull;
+    # Clone the repo
+    REPODIR="$GOPATH/src/puppy";
+    if [ ! -d "$REPODIR" ]; then
+        # Clone the repo if it doesn't exist
+        require mkdir -p "$REPODIR";
+        echo git clone "$PUPPYREPO" "$REPODIR";
+        require git clone "$PUPPYREPO" "$REPODIR";
+    fi
+    
+    # Check out the correct version
+    cd "$REPODIR";
+    if [ $DEV ] || [ $REPODIR ]; then
+        # If it's development, get the most recent version of puppy
+        require git pull;
+    else
+        # if it's not development, get the specified version
+        require git checkout "$PUPPYVERSION";
+    fi
+    cd "$INSTALLDIR"
+    
+    # Get dependencies
+    cd "$REPODIR";
+    echo "Getting puppy dependencies..."
+    require "$GO" get ./...;
+    
+    # Build puppy into the data dir
+    echo "Building puppy into $DATADIR/puppy...";
+    require mkdir -p "$DATADIR";
+    require "$GO" build -o "$DATADIR"/puppy $BUILDFLAGS "puppy/cmd/main";
 else
-    # if it's not development, get the specified version
-    require git checkout "$PUPPYVERSION";
+    # copy the pre-compiled binary
+    UNAME="$(uname -s)"
+    PUPPYFILE=""
+    if [ "$UNAME" = "Darwin" ]; then
+        echo "copying mac version of pre-built puppy to $DATADIR/puppy"
+        PUPPYFILE="puppy.osx"
+    elif [ "$UNAME" = "Linux" ]; then
+        if [ "$(uname -m)" = "x86_64" ]; then
+            echo "copying 64-bit linux version of pre-built puppy to $DATADIR/puppy"
+            PUPPYFILE="puppy.linux64"
+        else
+            echo "copying 32-bit linux version of pre-built puppy to $DATADIR/puppy"
+            PUPPYFILE="puppy.linux32"
+        fi
+    else
+        echo "could not detect system type. Please use -p to compile puppy from source (requires go installation)"
+        exit 1;
+    fi
+    cp "$INSTALLDIR/puppyrsc/$PUPPYFILE" "$DATADIR/puppy"
 fi
-cd "$INSTALLDIR"
-
-# Get dependencies
-cd "$REPODIR";
-echo "Getting puppy dependencies..."
-require "$GO" get ./...;
-
-# Build puppy into the data dir
-echo "Building puppy into $DATADIR/puppy...";
-require mkdir -p "$DATADIR";
-require "$GO" build -o "$DATADIR"/puppy $BUILDFLAGS "puppy/cmd/main";
 
 # Clear out old .pyc files
 require find "$INSTALLDIR/guppyproxy" -iname "*.pyc" -exec rm -f {} \;

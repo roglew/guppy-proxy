@@ -1,12 +1,12 @@
 import random
 
-from .reqlist import ReqBrowser, ReqListModel
-from .repeater import RepeaterWidget
-from .interceptor import InterceptorWidget
-from .decoder import DecoderWidget
-from .settings import SettingsWidget
-from .shortcuts import GuppyShortcuts
-from .macros import MacroWidget
+from guppyproxy.reqlist import ReqBrowser, ReqListModel
+from guppyproxy.repeater import RepeaterWidget
+from guppyproxy.interceptor import InterceptorWidget
+from guppyproxy.decoder import DecoderWidget
+from guppyproxy.settings import SettingsWidget
+from guppyproxy.shortcuts import GuppyShortcuts
+from guppyproxy.macros import MacroWidget
 from PyQt5.QtWidgets import QWidget, QTabWidget, QVBoxLayout, QTableView
 from PyQt5.QtCore import Qt
 
@@ -14,15 +14,6 @@ from PyQt5.QtCore import Qt
 class GuppyWindow(QWidget):
     titles = (
         "Guppy Proxy",
-        "Super Hacker Proxy 3000",
-        "Proxicado",
-        "Proxy Attack Proxy ProxY",
-        "Slurp Bruite",
-        "Pappy",
-        "Sports.exe",
-        "Gappy",
-        "Mickosoft Accel",
-        "Microsoft Word '98",
     )
 
     def __init__(self, client):
@@ -77,6 +68,15 @@ class GuppyWindow(QWidget):
 
     def show_decoder_tab(self):
         self.tabWidget.setCurrentIndex(self.decoder_ind)
+        
+    def show_active_macro_tab(self):
+        self.tabWidget.setCurrentIndex(self.macro_ind)
+        self.macroWidget.show_active()
+
+    def show_int_macro_tab(self):
+        self.tabWidget.setCurrentIndex(self.macro_ind)
+        self.macroWidget.show_int()
 
     def close(self):
         self.interceptorWidget.close()
+        

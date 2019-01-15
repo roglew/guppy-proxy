@@ -4,10 +4,11 @@ import os
 import random
 import re
 import stat
+import sys
 import traceback
 
-from .proxy import InterceptMacro, HTTPRequest, ProxyThread
-from .util import display_error_box
+from guppyproxy.proxy import InterceptMacro, HTTPRequest, ProxyThread
+from guppyproxy.util import display_error_box
 
 from collections import namedtuple
 from itertools import count
@@ -111,9 +112,12 @@ class FileInterceptMacro(InterceptMacro, QObject):
             st = os.stat(self.fname)
             if (st.st_mode & stat.S_IWOTH):
                 raise MacroException("Refusing to load world-writable macro: %s" % self.fname)
-            module_name = os.path.basename(self.fname)
+            module_name = self.fname
             try:
-                self.source = imp.load_source('%s'%module_name, self.fname)
+                if module_name in sys.modules and self.source != None:
+                    del sys.modules[module_name]
+                    del self.source
+                self.source = imp.load_source(module_name, self.fname)
             except Exception as e:
                 self.macroError.emit(make_err_str(self, e))
         else:
@@ -196,24 +200,24 @@ class FileMacro(QObject):
         self.source = None
         self.parent = parent
         self.cached_args = {}
-
-        if self.fname:
-            self.load()
+        self.load()
 
     def load(self):
         if self.fname:
             st = os.stat(self.fname)
             if (st.st_mode & stat.S_IWOTH):
                 raise MacroException("Refusing to load world-writable macro: %s" % self.fname)
-            module_name = os.path.basename(os.path.splitext(self.fname)[0])
+            module_name = self.fname
             try:
+                if module_name in sys.modules and self.source != None:
+                    del sys.modules[module_name]
+                    del self.source
                 self.source = imp.load_source('%s'%module_name, self.fname)
             except Exception as e:
                 self.macroError.emit(make_err_str(self, e))
-        else:
-            self.source = None
 
     def execute(self, client, reqs):
+        self.load()
         # Execute the macro
         if self.source:
             args = None
@@ -252,11 +256,19 @@ class MacroWidget(QWidget):
         self.warning_widg.setWordWrap(True)
         self.int_widg = IntMacroWidget(client)
         self.active_widg = ActiveMacroWidget(client)
+        self.active_ind = self.tab_widg.count()
         self.tab_widg.addTab(self.active_widg, "Active")
+        self.int_ind = self.tab_widg.count()
         self.tab_widg.addTab(self.int_widg, "Intercepting")
         self.tab_widg.addTab(self.warning_widg, "Warning")
 
         self.layout().addWidget(self.tab_widg)
+        
+    def show_active(self):
+        self.tab_widg.setCurrentIndex(self.active_ind)
+
+    def show_int(self):
+        self.tab_widg.setCurrentIndex(self.int_ind)
     
     def add_requests(self, reqs):
         # Add requests to active macro inputw
@@ -485,7 +497,6 @@ class ActiveMacroModel(QAbstractTableModel):
     def run_macro(self, ind, reqs=None):
         path, macro = self.macros[ind]
         reqs = reqs or []
-        macro.load()
         macro.execute(self.client, reqs)
 
     def remove_macro(self, ind):
