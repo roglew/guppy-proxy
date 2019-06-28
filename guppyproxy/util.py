@@ -12,6 +12,8 @@ from PyQt5.QtGui import QColor
 
 str_colorcache = {}
 
+_last_file_dialog_dir = ""
+_is_app = False
 
 class DisableUpdates:
     def __init__(self, *args):
@@ -23,7 +25,7 @@ class DisableUpdates:
             if hasattr(obj, 'setReadOnly'):
                 self.undoredo.append((obj, obj.isUndoRedoEnabled()))
                 obj.setUndoRedoEnabled(False)
-            if hasattr(obj, 'setUndoRedoEnabled'):
+            if hasattr(obj, 'setReadOnly'):
                 self.readonly.append((obj, obj.isReadOnly()))
                 obj.setReadOnly(True)
 
@@ -48,7 +50,7 @@ def str_hash_code(s):
     return h
 
 
-qtprintable = [c for c in string.printable if c != '\r']
+qtprintable = string.digits + string.ascii_letters + string.punctuation + ' ' + '\t' + '\n'
 
 
 def dbgline():
@@ -111,22 +113,51 @@ def paste_clipboard():
     return QApplication.clipboard().text()
 
 
-def save_dialog(parent, default_dir=None, default_name=None):
-    default_dir = default_dir or os.getcwd()
-    default_name = default_name or ""
-    dialog = QFileDialog(parent)
-    dialog.setFileMode(QFileDialog.AnyFile)
-    dialog.setViewMode(QFileDialog.Detail)
-    dialog.setAcceptMode(QFileDialog.AcceptSave)
-    dialog.setDirectory(os.getcwd())
-    dialog.selectFile(default_name)
-    if not (dialog.exec_()):
+def running_as_app():
+    global _is_app
+    return _is_app
+
+
+def set_running_as_app(is_app):
+    global _is_app
+    _is_app = is_app
+
+    
+def default_dialog_dir():
+    global _last_file_dialog_dir
+    if _last_file_dialog_dir != "":
+        return _last_file_dialog_dir
+    
+    if running_as_app():
+        return os.path.expanduser('~')
+    else:
+        return os.getcwd()
+
+
+def set_default_dialog_dir(s):
+    global _last_file_dialog_dir
+    _last_file_dialog_dir = os.path.dirname(s)
+
+
+def save_dialog(parent, filter_string="Any File (*)", caption="Save File", default_dir=None, default_name=None):
+    default_dir = default_dir or default_dialog_dir()
+    fname, _ = QFileDialog.getSaveFileName(parent, caption, default_dir, filter_string)
+    if not fname:
         return None
-    saveloc = dialog.selectedFiles()[0]
-    return saveloc
+    set_default_dialog_dir(os.path.abspath(fname))
+    return fname
+
+def open_dialog(parent, filter_string="Any File (*)", default_dir=None):
+    fname, _ = QFileDialog.getOpenFileName(parent, "Save File", default_dialog_dir(), filter_string)
+    if not fname:
+        return None
+    set_default_dialog_dir(os.path.abspath(fname))
+    return fname
 
 
 def display_req_context(parent, client, req, event, repeater_widget=None, req_view_widget=None, macro_widget=None, save_option=False):
+    from guppyproxy.macros import create_macro_template
+
     menu = QMenu(parent)
     repeaterAction = None
     displayUnmangledReq = None
@@ -153,6 +184,7 @@ def display_req_context(parent, client, req, event, repeater_widget=None, req_vi
     saveAction = menu.addAction("Save response to file")
     saveFullActionReq = menu.addAction("Save request to file (full message)")
     saveFullActionRsp = menu.addAction("Save response to file (full message)")
+    saveMacroAction = menu.addAction("Create active macro with selected requests")
 
     if macro_widget is not None:
         macroAction = menu.addAction("Add to active macro input")
@@ -209,7 +241,35 @@ def display_req_context(parent, client, req, event, repeater_widget=None, req_vi
             f.write(req.full_message())
     if macroAction and action == macroAction:
         macro_widget.add_requests([req])
+    if action == saveMacroAction:
+        saveloc = save_dialog(parent, default_name="macro.py")
+        if saveloc == None:
+            return
+        with open(saveloc, 'w') as f:
+            f.write(create_macro_template([req]))
 
+def display_multi_req_context(parent, client, reqs, event, macro_widget=None, save_option=False):
+    from guppyproxy.macros import create_macro_template
+
+    menu = QMenu(parent)
+    if macro_widget:
+        macroAction = menu.addAction("Add to active macro input")
+    if save_option:
+        saveAction = menu.addAction("Save requests to history")
+    saveMacroAction = menu.addAction("Create active macro with selected requests")
+    action = menu.exec_(parent.mapToGlobal(event.pos()))
+    if macro_widget and action == macroAction:
+        if macro_widget:
+            macro_widget.add_requests(reqs)
+    if save_option and action == saveAction:
+        for req in reqs:
+            client.save_new(req)
+    if action == saveMacroAction:
+        saveloc = save_dialog(parent, default_name="macro.py")
+        if saveloc == None:
+            return
+        with open(saveloc, 'w') as f:
+            f.write(create_macro_template(reqs))
 
 def method_color(method):
     if method.lower() == 'get':

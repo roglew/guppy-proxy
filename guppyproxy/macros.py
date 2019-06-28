@@ -8,15 +8,16 @@ import sys
 import traceback
 
 from guppyproxy.proxy import InterceptMacro, HTTPRequest, ProxyThread
-from guppyproxy.util import display_error_box
+from guppyproxy.util import display_error_box, qtprintable, set_default_dialog_dir, default_dialog_dir, open_dialog, save_dialog, display_info_box
 
 from collections import namedtuple
 from itertools import count
-from PyQt5.QtWidgets import QWidget, QTableWidget, QTableWidgetItem, QGridLayout, QHeaderView, QAbstractItemView, QVBoxLayout, QHBoxLayout, QComboBox, QTabWidget, QPushButton, QLineEdit, QStackedLayout, QToolButton, QCheckBox, QLabel, QTableView, QPlainTextEdit, QFileDialog, QFormLayout, QSizePolicy, QDialog
+from PyQt5.QtWidgets import QWidget, QTableWidget, QTableWidgetItem, QGridLayout, QHeaderView, QAbstractItemView, QVBoxLayout, QHBoxLayout, QComboBox, QTabWidget, QPushButton, QLineEdit, QStackedLayout, QToolButton, QCheckBox, QLabel, QTableView, QPlainTextEdit, QFormLayout, QSizePolicy, QDialog, QPlainTextEdit, QTextEdit
 from PyQt5.QtCore import pyqtSlot, pyqtSignal, QObject, QVariant, Qt, QAbstractTableModel, QModelIndex, QItemSelection, QSortFilterProxyModel
 
 
 errwins = set()
+
 
 class MacroException(Exception):
     pass
@@ -191,6 +192,7 @@ class FileInterceptMacro(InterceptMacro, QObject):
 
 class FileMacro(QObject):
     macroError = pyqtSignal(str)
+    macroComplete = pyqtSignal(str)
     requestOutput = pyqtSignal(HTTPRequest)
     macroOutput = pyqtSignal(str)
 
@@ -237,10 +239,12 @@ class FileMacro(QObject):
                 mclient._requestOutput.connect(self.requestOutput)
                 try:
                     self.source.run_macro(mclient, args, reqs)
+                    _, fname = os.path.split(self.fname)
+                    self.macroComplete.emit("%s has finished running" % fname)
                 except Exception as e:
                     self.macroError.emit(make_err_str(self, e))
             ProxyThread(target=perform_macro).start()
-
+            
 class MacroWidget(QWidget):
     # Tabs containing both int and active macros
 
@@ -252,14 +256,16 @@ class MacroWidget(QWidget):
         self.layout().setContentsMargins(0, 0, 0, 0)
         self.tab_widg = QTabWidget()
 
-        self.warning_widg = QLabel("<h1>Warning! Macros may cause instability</h1><p>Macros load and run python files into the Guppy process. If you're not careful when you write them you may cause Guppy to crash. If an active macro ends up in an infinite loop you may need to force kill the application when you quit.</p><p><b>PROCEED WITH CAUTION</b></p>")
-        self.warning_widg.setWordWrap(True)
-        self.int_widg = IntMacroWidget(client)
         self.active_widg = ActiveMacroWidget(client)
         self.active_ind = self.tab_widg.count()
         self.tab_widg.addTab(self.active_widg, "Active")
+
+        self.int_widg = IntMacroWidget(client)
         self.int_ind = self.tab_widg.count()
         self.tab_widg.addTab(self.int_widg, "Intercepting")
+
+        self.warning_widg = QLabel("<h1>Warning! Macros may cause instability</h1><p>Macros load and run python files into the Guppy process. If you're not careful when you write them you may cause Guppy to crash. If an active macro ends up in an infinite loop you may need to force kill the application when you quit.</p><p><b>PROCEED WITH CAUTION</b></p>")
+        self.warning_widg.setWordWrap(True)
         self.tab_widg.addTab(self.warning_widg, "Warning")
 
         self.layout().addWidget(self.tab_widg)
@@ -335,7 +341,7 @@ class IntMacroListModel(QAbstractTableModel):
         if not self.err_window:
             self.err_window = MacroErrWindow()
         self.err_window.add_error(estr)
-    
+
     def add_macro(self, macro_path):
         self.beginResetModel()
         macro = FileInterceptMacro(self.parent, self.client, macro_path)
@@ -404,8 +410,10 @@ class IntMacroWidget(QWidget):
         self.layout().setContentsMargins(0, 0, 0, 0)
         
         buttonLayout = QHBoxLayout()
+        new_button = QPushButton("New")
         add_button = QPushButton("Add...")
         remove_button = QPushButton("Remove")
+        new_button.clicked.connect(self.new_macro)
         add_button.clicked.connect(self.browse_macro)
         remove_button.clicked.connect(self.remove_selected)
         
@@ -423,6 +431,7 @@ class IntMacroWidget(QWidget):
         self.macroListView.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.macroListView.setSelectionMode(QAbstractItemView.SingleSelection)
         
+        buttonLayout.addWidget(new_button)
         buttonLayout.addWidget(add_button)
         buttonLayout.addWidget(remove_button)
         buttonLayout.addStretch()
@@ -434,13 +443,25 @@ class IntMacroWidget(QWidget):
     
     def reload_macros(self):
         self.macroListModel.reload_macros()
+
+    @pyqtSlot()
+    def new_macro(self):
+        fname = save_dialog(self, filter_string="Python File (*.py)")
+        if not fname:
+            return
+        with open(fname, 'w') as f:
+            contents = new_int_macro()
+            f.write(contents)
+        self.add_macro(fname)
         
+    @pyqtSlot()
     def browse_macro(self):
-        fname, ftype = QFileDialog.getOpenFileName(self, "Open File", os.getcwd(), "Python File (*.py)")
+        fname = open_dialog(self, filter_string="Python File (*.py)")
         if not fname:
             return
         self.add_macro(fname)
 
+    @pyqtSlot()
     def remove_selected(self):
         rows = self.macroListView.selectionModel().selectedRows()
         if len(rows) == 0:
@@ -491,6 +512,7 @@ class ActiveMacroModel(QAbstractTableModel):
         fileMacro.macroOutput.connect(self.macroOutput)
         fileMacro.macroError.connect(self.add_macro_exception)
         fileMacro.requestOutput.connect(self.requestOutput)
+        fileMacro.macroComplete.connect(self.display_macro_complete)
         self.macros.append((path, fileMacro))
         self.endResetModel()
 
@@ -510,6 +532,11 @@ class ActiveMacroModel(QAbstractTableModel):
         if not self.err_window:
             self.err_window = MacroErrWindow()
         self.err_window.add_error(estr)
+
+    @pyqtSlot(str)
+    def display_macro_complete(self, msg):
+        display_info_box(msg, title="Macro complete")
+    
 
 class ActiveMacroWidget(QWidget):
     # Provides an interface to send a set of requests to python scripts
@@ -559,12 +586,15 @@ class ActiveMacroWidget(QWidget):
         self.tableView.horizontalHeader().hide()
         self.tableView.setSelectionMode(QAbstractItemView.SingleSelection)
         butlayout2 = QHBoxLayout()
+        newButton = QPushButton("New")
+        newButton.clicked.connect(self.new_macro)
         addButton2 = QPushButton("Add...")
         addButton2.clicked.connect(self.browse_macro)
         delButton2 = QPushButton("Remove")
         delButton2.clicked.connect(self.remove_selected)
         runButton2 = QPushButton("Run")
         runButton2.clicked.connect(self.run_selected_macro)
+        butlayout2.addWidget(newButton)
         butlayout2.addWidget(addButton2)
         butlayout2.addWidget(delButton2)
         butlayout2.addWidget(runButton2)
@@ -623,8 +653,18 @@ class ActiveMacroWidget(QWidget):
             self.reqlist.add_request(req)
             
     @pyqtSlot()
+    def new_macro(self):
+        fname = save_dialog(self, filter_string="Python File (*.py)")
+        if not fname:
+            return
+        with open(fname, 'w') as f:
+            contents = new_active_macro()
+            f.write(contents)
+        self.tableModel.add_macro(fname)
+
+    @pyqtSlot()
     def browse_macro(self):
-        fname, ftype = QFileDialog.getOpenFileName(self, "Open File", os.getcwd(), "Python File (*.py)")
+        fname = open_dialog(self, filter_string="Python File (*.py)")
         if not fname:
             return
         self.tableModel.add_macro(fname)
@@ -777,3 +817,71 @@ def get_macro_args(parent, argspec, cached=None):
     argwin.exec_()
     return argwin.get_args()
 
+def req_python_def(varname, req):
+    method = req.method
+    path = req.url.geturl()
+    pmajor = req.proto_major
+    pminor = req.proto_minor
+    headers = req.headers.dict().items()
+    dest_host = req.dest_host
+    dest_port = req.dest_port
+    if req.use_tls:
+        use_tls = "True"
+    else:
+        use_tls = "False"
+    body = ""
+    if len(req.body) > 0:
+        s = '"'
+        if b'\n' in req.body:
+            s = '"""'
+        for c in req.body:
+            if chr(c) in qtprintable:
+                body += chr(c)
+            else:
+                body += "\\x%02x" % c
+        body = "%s%s%s" % (s, body, s)
+
+    ret = ''
+    ret += '%s = HTTPRequest(' % varname
+    ret += 'proto_major=%d, proto_minor=%d,\n' % (pmajor, pminor)
+    ret += '    use_tls=%s, dest_host="%s", dest_port=%d,\n' % (use_tls, dest_host, dest_port)
+    ret += '    method="%s", path="%s", headers={\n' % (method, path)
+    for k, vs in headers:
+        qvs = []
+        for v in vs:
+            qvs.append('"%s"' % v)
+        vstr = "[" + ", ".join(qvs) + "]"
+        ret += '        "%s": %s,\n' % (k, vstr)
+    ret += '    },\n'
+    if len(body) > 0:
+        ret += '    body=%s\n' % body
+    ret += ")"
+    return ret
+
+def create_macro_template(reqs):
+    ret = "from guppyproxy.proxy import HTTPRequest\n\n"
+    i = 0
+    for req in reqs:
+        ret += req_python_def("req%d"%i, req)
+        ret += "\n\n"
+        i += 1
+    ret += "def run_macro(client, args, reqs):\n"
+    if i == 0:
+        ret += "    pass\n"
+    for ii in range(i):
+        ret += "    client.submit(req%d)\n" % ii
+        ret += "    client.output_req(req%d)\n\n" % ii
+    return ret
+
+def new_active_macro():
+    return "def run_macro(client, args, reqs):\n    # Macro code goes here\n    pass"
+
+def new_int_macro():
+    return """def mangle_request(client, args, req):
+    # modify request here
+    return req
+
+def mangle_response(client, args, req, rsp):
+    # modify response here
+    return rsp
+"""

@@ -6,7 +6,7 @@ from PyQt5.QtWidgets import QApplication
 from PyQt5.QtCore import Qt
 from guppyproxy.gui import GuppyWindow
 from guppyproxy.proxy import ProxyClient, MessageError, ProxyThread
-from guppyproxy.util import confirm
+from guppyproxy.util import confirm, set_running_as_app
 from guppyproxy.macros import MacroClient
 
 
@@ -57,6 +57,7 @@ def main():
             rpath = os.environ['RESOURCEPATH']
             checkloc = os.path.join(rpath, 'puppyrsc', 'puppy.osx')
             if os.path.exists(checkloc):
+                set_running_as_app(True)
                 binloc = checkloc
         if not os.path.exists(binloc):
             print("Could not find puppy binary. Please ensure that it has been compiled and placed in ~/.guppy/, or pass in the binary location from the command line")

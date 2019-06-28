@@ -1,7 +1,7 @@
-from guppyproxy.util import list_remove, display_error_box
+from guppyproxy.util import list_remove, display_error_box, set_default_dialog_dir, default_dialog_dir, save_dialog, open_dialog
 from guppyproxy.proxy import MessageError
 from guppyproxy.config import ProxyConfig
-from PyQt5.QtWidgets import QWidget, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QFormLayout, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit, QSizePolicy, QToolButton, QCheckBox, QLabel, QFileDialog
+from PyQt5.QtWidgets import QWidget, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QFormLayout, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit, QSizePolicy, QToolButton, QCheckBox, QLabel
 from PyQt5.QtCore import pyqtSlot, pyqtSignal
 import os
 import copy
@@ -148,20 +148,22 @@ class DatafileWidget(QWidget):
 
     @pyqtSlot()
     def new_datafile(self):
-        fname, ftype = QFileDialog.getSaveFileName(self, "Save File", os.getcwd(), "Database File (*.gpy)")
+        fname = save_dialog(self, filter_string="Database File (*.gpy)")
         if not fname:
             return
         if len(fname) < 4 and fname[:-4] != ".gpy":
             fname += ".gpy"
+        set_default_dialog_dir(fname)
         self.datapath.setText(fname)
         self._load_datafile()
 
     @pyqtSlot()
     def open_datafile(self):
-        fname, ftype = QFileDialog.getOpenFileName(self, "Open File", os.getcwd(), "Any File (*.*)")
+        fname = open_dialog(self)
         if not fname:
             return
         self.datapath.setText(fname)
+        set_default_dialog_dir(fname)
         self._load_datafile()
 
 

@@ -28,6 +28,7 @@ def asciihex_decode_helper(s):
 
 
 def base64_decode_helper(s):
+    s = s.decode()
     for i in range(0, 8):
         try:
             s_padded = base64.b64decode(s + '=' * i)

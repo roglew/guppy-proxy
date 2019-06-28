@@ -1411,6 +1411,10 @@ class ProxyClient:
             prefix = s.prefix
         return "{}{}".format(prefix, req.db_id)
 
+    def load_by_reqheaders(self, req):
+        reqid = self.get_reqid(req)
+        return self.req_by_id(reqid)
+
     # functions that don't just pass through to underlying conn
 
     def add_sqlite_storage(self, path, prefix):

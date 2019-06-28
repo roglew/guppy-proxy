@@ -220,34 +220,32 @@ class HextEditor(QWidget):
         self.lexer = lexer
 
     def set_bytes(self, bs):
-        self.pretty_mode = False
-        self.data = bs
-        chunks = HextEditor._split_by_printables(bs)
-        self.clear()
-        cursor = QTextCursor(self.textedit.document())
-        cursor.beginEditBlock()
-
-        cursor.select(QTextCursor.Document)
-        cursor.setCharFormat(QTextCharFormat())
-        cursor.clearSelection()
-
-        for chunk in chunks:
-            if chr(chunk[0]) in qtprintable:
-                cursor.insertText(chunk.decode())
-            else:
-                for b in chunk:
-                    self._insert_byte(cursor, b)
-        cursor.endEditBlock()
+        with DisableUpdates(self.textedit):
+            self.pretty_mode = False
+            self.data = bs
+            chunks = HextEditor._split_by_printables(bs)
+            self.clear()
+            cursor = QTextCursor(self.textedit.document())
+            cursor.beginEditBlock()
+            try:
+                cursor.select(QTextCursor.Document)
+                cursor.setCharFormat(QTextCharFormat())
+                cursor.clearSelection()
+                for chunk in chunks:
+                    if chr(chunk[0]) in qtprintable:
+                        cursor.insertText(chunk.decode())
+                    else:
+                        for b in chunk:
+                            self._insert_byte(cursor, b)
+            finally:
+                cursor.endEditBlock()
+        self.repaint() # needed to fix issue with py2app
 
     def set_bytes_highlighted(self, bs, lexer=None):
         if not self.enable_pretty:
             self.set_bytes(bs)
             return
         with DisableUpdates(self.textedit):
-            self.textedit.setUndoRedoEnabled(False)
-            oldro = self.textedit.isReadOnly()
-
-            self.textedit.setReadOnly(True)
             self.pretty_mode = True
             self.clear()
             self.data = bs
@@ -256,9 +254,7 @@ class HextEditor(QWidget):
             printable = printable_data(bs)
             highlighted = textedit_highlight(printable, self.lexer)
             self.textedit.setHtml(highlighted)
-
-            self.textedit.setUndoRedoEnabled(True)
-            self.textedit.setReadOnly(oldro)
+        self.repaint() # needed to fix issue with py2app
 
     def get_bytes(self):
         if not self.pretty_mode:

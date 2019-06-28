@@ -8,7 +8,7 @@ from guppyproxy.settings import SettingsWidget
 from guppyproxy.shortcuts import GuppyShortcuts
 from guppyproxy.macros import MacroWidget
 from PyQt5.QtWidgets import QWidget, QTabWidget, QVBoxLayout, QTableView
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer, QObject, pyqtSlot
 
 
 class GuppyWindow(QWidget):
@@ -19,9 +19,11 @@ class GuppyWindow(QWidget):
     def __init__(self, client):
         QWidget.__init__(self)
         self.client = client
-        self.initUi()
-
-    def initUi(self):
+        
+        self.delayTimeout = 100
+        self._resizeTimer = QTimer(self)
+        self._resizeTimer.timeout.connect(self._delayedUpdate)
+        
         self.setFocusPolicy(Qt.StrongFocus)
         self.shortcuts = GuppyShortcuts(self)
         self.tabWidget = QTabWidget()
@@ -51,8 +53,15 @@ class GuppyWindow(QWidget):
         self.settings_ind = self.tabWidget.count()
         self.tabWidget.addTab(self.settingsWidget, "Settings")
 
-        self.mainLayout = QVBoxLayout(self)
+        self.mainLayout = QVBoxLayout()
         self.mainLayout.addWidget(self.tabWidget)
+        self.mainWidget = QWidget()
+        self.mainWidget.setLayout(self.mainLayout)
+        
+        self.wrapperLayout = QVBoxLayout()
+        self.wrapperLayout.addWidget(self.mainWidget)
+        self.wrapperLayout.setContentsMargins(0, 0, 0, 0)
+        self.setLayout(self.wrapperLayout)
 
         self.setWindowTitle(random.choice(GuppyWindow.titles))
         self.show()
@@ -76,6 +85,17 @@ class GuppyWindow(QWidget):
     def show_int_macro_tab(self):
         self.tabWidget.setCurrentIndex(self.macro_ind)
         self.macroWidget.show_int()
+        
+    def resizeEvent(self, event):
+        QWidget.resizeEvent(self, event)
+        self._resizeTimer.stop()
+        self._resizeTimer.start(self.delayTimeout)
+        self.mainWidget.setVisible(False)
+
+    @pyqtSlot()
+    def _delayedUpdate(self):
+        self._resizeTimer.stop()
+        self.mainWidget.setVisible(True)
 
     def close(self):
         self.interceptorWidget.close()
