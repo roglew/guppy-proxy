@@ -18,7 +18,7 @@ Make sure the following commands are available:
 
 ### Mac
 
-1. Download the .app of version of guppy [available here](https://s3-us-west-2.amazonaws.com/guppydist/GuppyProxy.zip)
+1. Download the .app of version of guppy [available here](https://guppydist.s3-us-west-2.amazonaws.com/GuppyProxy-0.0.15.zip)
 1. Start the application
 1. Add the CA cert in `~/.guppy/certs` to your browser as a CA
 1. Configure your browser to use `localhost:8080` as a proxy
